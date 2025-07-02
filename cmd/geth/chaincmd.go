@@ -223,6 +223,31 @@ helps reduce storage requirements for nodes that don't need full historical data
 			},
 		),
 	}
+
+	exportFromFirehoseCommand = &cli.Command{
+		Action:    exportFromFirehose,
+		Name:      "export-from-firehose",
+		Usage:     "Export blocks from a Firehose gRPC endpoint to an RLP file",
+		ArgsUsage: "<firehose-endpoint>",
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:  "batch-size",
+				Usage: "Number of blocks per RLP file batch",
+				Value: 1000,
+			},
+			&cli.StringFlag{
+				Name:  "output",
+				Usage: "Output file prefix (will append .rlp, .rlp.1, etc.)",
+				Value: "firehose_export",
+			},
+		},
+		Description: `
+Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and writes them in RLP format compatible with 'geth import'.
+
+Example:
+  geth export-from-firehose localhost:9000 --batch-size 500 --output myblocks
+`,
+	}
 )
 
 var (
@@ -792,4 +817,27 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 		return start, end, true
 	}
 	return 0, 0, false
+}
+
+// exportFromFirehose is the handler for the export-from-firehose command.
+func exportFromFirehose(ctx *cli.Context) error {
+	if ctx.Args().Len() < 1 {
+		return fmt.Errorf("missing required <firehose-endpoint> argument")
+	}
+	endpoint := ctx.Args().First()
+	batchSize := ctx.Int("batch-size")
+	outputPrefix := ctx.String("output")
+
+	fmt.Printf("Connecting to Firehose endpoint: %s\n", endpoint)
+	fmt.Printf("Batch size: %d\n", batchSize)
+	fmt.Printf("Output prefix: %s\n", outputPrefix)
+
+	// TODO: Connect to Firehose gRPC endpoint using firehose-core
+	// TODO: Stream blocks using firehose-ethereum
+	// TODO: Batch blocks in memory (batchSize)
+	// TODO: Serialize each batch to RLP and write to outputPrefix.rlp, outputPrefix.rlp.1, ...
+	// TODO: Print progress and handle errors
+
+	fmt.Println("[STUB] export-from-firehose not yet implemented.")
+	return nil
 }
