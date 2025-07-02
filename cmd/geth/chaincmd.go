@@ -837,7 +837,7 @@ func exportFromFirehose(ctx *cli.Context) error {
 	outputPrefix := ctx.String("output")
 
 	// Create firehose client using the firehose-core library
-	client, closeFunc, _, err := client.NewFirehoseClient(endpoint, "", "", true, false)
+	client, closeFunc, _, err := client.NewFirehoseClient(endpoint, "", "", false, true)
 	if err != nil {
 		return fmt.Errorf("failed to create Firehose client: %w", err)
 	}
