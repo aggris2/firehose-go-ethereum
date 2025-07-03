@@ -249,6 +249,16 @@ helps reduce storage requirements for nodes that don't need full historical data
 				Usage: "Output file prefix (will append .rlp, .rlp.1, etc.)",
 				Value: "firehose_export",
 			},
+			&cli.Int64Flag{
+				Name:  "start-block",
+				Usage: "Start block number (inclusive, default: 1)",
+				Value: 1,
+			},
+			&cli.Uint64Flag{
+				Name:  "end-block",
+				Usage: "End block number (inclusive, default: unlimited)",
+				Value: 0,
+			},
 		},
 		Description: `
 Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and writes them in RLP format compatible with 'geth import'.
@@ -835,6 +845,8 @@ func exportFromFirehose(ctx *cli.Context) error {
 	endpoint := ctx.Args().First()
 	batchSize := ctx.Int("batch-size")
 	outputPrefix := ctx.String("output")
+	startBlock := ctx.Int64("start-block")
+	endBlock := ctx.Uint64("end-block")
 
 	// Create firehose client using the firehose-core library
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
@@ -846,9 +858,8 @@ func exportFromFirehose(ctx *cli.Context) error {
 	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
 	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
-		// TODO: Configure start and end block
-		StartBlockNum: 1,
-		StopBlockNum:  1 + 100000,
+		StartBlockNum: startBlock,
+		StopBlockNum:  endBlock,
 	}, grpcOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to start block stream: %w", err)
@@ -889,13 +900,13 @@ func exportFromFirehose(ctx *cli.Context) error {
 			if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
 				return fmt.Errorf("failed to write batch %d: %w", batchNum, err)
 			}
-			fmt.Printf("Wrote batch %d with %d blocks (total: %d)\n", batchNum, len(blocks), totalBlocks)
+			fmt.Printf("Wrote batch %d with %d blocks (total: %d, from block %d to block %d)\n", batchNum, len(blocks), totalBlocks, uint64(startBlock)+uint64(len(blocks))*uint64(batchNum), block.NumberU64())
 			blocks = blocks[:0]
 			batchNum++
 		}
 
 		if totalBlocks%1000 == 0 {
-			fmt.Printf("Processed %d blocks...\n", totalBlocks)
+			fmt.Printf("Processed %d blocks (from block %d to block %d)...\n", totalBlocks, startBlock, block.NumberU64())
 		}
 	}
 
