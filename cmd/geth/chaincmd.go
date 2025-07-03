@@ -23,7 +23,8 @@ import (
 	"fmt"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	pbfirehose "github.com/streamingfast/pbgo/sf/firehose/v2"
-	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 	"io"
 	"math/big"
 	"os"
@@ -251,9 +252,6 @@ helps reduce storage requirements for nodes that don't need full historical data
 		},
 		Description: `
 Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and writes them in RLP format compatible with 'geth import'.
-
-Example:
-  geth export-from-firehose localhost:9000 --batch-size 500 --output myblocks --start-block 1000000
 `,
 	}
 )
@@ -832,25 +830,29 @@ func exportFromFirehose(ctx *cli.Context) error {
 	if ctx.Args().Len() < 1 {
 		return fmt.Errorf("missing required <firehose-endpoint> argument")
 	}
+	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
+	if apiToken == "" {
+		return fmt.Errorf("FIREHOSE_API_TOKEN environment variable is not set")
+	}
+
 	endpoint := ctx.Args().First()
 	batchSize := ctx.Int("batch-size")
 	outputPrefix := ctx.String("output")
 
 	// Create firehose client using the firehose-core library
-	client, closeFunc, _, err := client.NewFirehoseClient(endpoint, "", "", false, true)
+	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Firehose client: %w", err)
 	}
 	defer closeFunc()
 
-	// Create the stream request
-	req := &pbfirehose.Request{
-		FinalBlocksOnly: false,
-		Transforms:      []*anypb.Any{},
-	}
+	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
-	// Start the stream
-	stream, err := client.Blocks(context.Background(), req)
+	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
+		// TODO: Configure start and end block
+		StartBlockNum: 1,
+		StopBlockNum:  1 + 100000,
+	}, grpcOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to start block stream: %w", err)
 	}
@@ -863,9 +865,10 @@ func exportFromFirehose(ctx *cli.Context) error {
 	for {
 		response, err := stream.Recv()
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if err == io.EOF {
 				break
 			}
+
 			return fmt.Errorf("error receiving from stream: %w", err)
 		}
 
@@ -915,11 +918,16 @@ func exportFromFirehose(ctx *cli.Context) error {
 
 // writeBatch writes a batch of blocks to an RLP file
 func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
+	dir := "rlp-data"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
 	var filename string
 	if batchNum == 0 {
-		filename = fmt.Sprintf("%s.rlp", outputPrefix)
+		filename = fmt.Sprintf("%s/%s.rlp", dir, outputPrefix)
 	} else {
-		filename = fmt.Sprintf("%s.rlp.%d", outputPrefix, batchNum)
+		filename = fmt.Sprintf("%s/%s.rlp.%d", dir, outputPrefix, batchNum)
 	}
 
 	file, err := os.Create(filename)
