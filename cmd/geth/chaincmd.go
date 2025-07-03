@@ -951,6 +951,26 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		header.BaseFee = pbBlock.Header.BaseFeePerGas.Native()
 	}
 
+	if pbBlock.Header.WithdrawalsRoot != nil {
+		header.WithdrawalsHash = (*common.Hash)(pbBlock.Header.WithdrawalsRoot)
+	}
+
+	if pbBlock.Header.BlobGasUsed != nil {
+		header.BlobGasUsed = pbBlock.Header.BlobGasUsed
+	}
+
+	if pbBlock.Header.ExcessBlobGas != nil {
+		header.ExcessBlobGas = pbBlock.Header.ExcessBlobGas
+	}
+
+	if pbBlock.Header.ParentBeaconRoot != nil {
+		header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.ParentBeaconRoot)
+	}
+
+	if pbBlock.Header.RequestsHash != nil {
+		header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.RequestsHash)
+	}
+
 	// Convert transactions
 	var txs []*types.Transaction
 	for _, pbTx := range pbBlock.TransactionTraces {
@@ -960,22 +980,29 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 
 		var tx *types.Transaction
 		if pbTx.To != nil {
-			tx = types.NewTransaction(
-				pbTx.Nonce,
-				common.BytesToAddress(pbTx.To),
-				pbTx.Value.Native(),
-				pbTx.GasLimit,
-				pbTx.GasPrice.Native(),
-				pbTx.Input,
-			)
+			tx = types.NewTx(&types.LegacyTx{
+				Nonce:    pbTx.Nonce,
+				To:       func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				Value:    pbTx.Value.Native(),
+				Gas:      pbTx.GasLimit,
+				GasPrice: pbTx.GasPrice.Native(),
+				Data:     pbTx.Input,
+				V:        new(big.Int).SetBytes(pbTx.V),
+				R:        new(big.Int).SetBytes(pbTx.R),
+				S:        new(big.Int).SetBytes(pbTx.S),
+			})
 		} else {
-			tx = types.NewContractCreation(
-				pbTx.Nonce,
-				pbTx.Value.Native(),
-				pbTx.GasLimit,
-				pbTx.GasPrice.Native(),
-				pbTx.Input,
-			)
+			tx = types.NewTx(&types.LegacyTx{
+				Nonce:    pbTx.Nonce,
+				To:       nil,
+				Value:    pbTx.Value.Native(),
+				Gas:      pbTx.GasLimit,
+				GasPrice: pbTx.GasPrice.Native(),
+				Data:     pbTx.Input,
+				V:        new(big.Int).SetBytes(pbTx.V),
+				R:        new(big.Int).SetBytes(pbTx.R),
+				S:        new(big.Int).SetBytes(pbTx.S),
+			})
 		}
 
 		if tx != nil {
@@ -1009,6 +1036,27 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		if pbUncle.BaseFeePerGas != nil {
 			uncle.BaseFee = pbUncle.BaseFeePerGas.Native()
 		}
+
+		if pbUncle.WithdrawalsRoot != nil {
+			header.WithdrawalsHash = (*common.Hash)(pbBlock.Header.WithdrawalsRoot)
+		}
+
+		if pbUncle.BlobGasUsed != nil {
+			header.BlobGasUsed = pbBlock.Header.BlobGasUsed
+		}
+
+		if pbUncle.ExcessBlobGas != nil {
+			header.ExcessBlobGas = pbBlock.Header.ExcessBlobGas
+		}
+
+		if pbUncle.ParentBeaconRoot != nil {
+			header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.ParentBeaconRoot)
+		}
+
+		if pbUncle.RequestsHash != nil {
+			header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.RequestsHash)
+		}
+
 		uncles = append(uncles, uncle)
 	}
 
