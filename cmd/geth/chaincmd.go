@@ -830,11 +830,8 @@ func exportFromFirehose(ctx *cli.Context) error {
 	if ctx.Args().Len() < 1 {
 		return fmt.Errorf("missing required <firehose-endpoint> argument")
 	}
-	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
-	if apiToken == "" {
-		return fmt.Errorf("FIREHOSE_API_TOKEN environment variable is not set")
-	}
 
+	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
 	endpoint := ctx.Args().First()
 	batchSize := ctx.Int("batch-size")
 	outputPrefix := ctx.String("output")
@@ -857,18 +854,17 @@ func exportFromFirehose(ctx *cli.Context) error {
 		return fmt.Errorf("failed to start block stream: %w", err)
 	}
 
+	// Process blocks from the stream
 	var blocks []*types.Block
 	var batchNum int
 	var totalBlocks int
 
-	// Process blocks from the stream
 	for {
 		response, err := stream.Recv()
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-
 			return fmt.Errorf("error receiving from stream: %w", err)
 		}
 
@@ -894,11 +890,10 @@ func exportFromFirehose(ctx *cli.Context) error {
 				return fmt.Errorf("failed to write batch %d: %w", batchNum, err)
 			}
 			fmt.Printf("Wrote batch %d with %d blocks (total: %d)\n", batchNum, len(blocks), totalBlocks)
-			blocks = blocks[:0] // Reset slice
+			blocks = blocks[:0]
 			batchNum++
 		}
 
-		// Progress logging
 		if totalBlocks%1000 == 0 {
 			fmt.Printf("Processed %d blocks...\n", totalBlocks)
 		}
@@ -913,36 +908,6 @@ func exportFromFirehose(ctx *cli.Context) error {
 	}
 
 	fmt.Printf("Export completed successfully. Total blocks exported: %d\n", totalBlocks)
-	return nil
-}
-
-// writeBatch writes a batch of blocks to an RLP file
-func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
-	dir := "rlp-data"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
-	var filename string
-	if batchNum == 0 {
-		filename = fmt.Sprintf("%s/%s.rlp", dir, outputPrefix)
-	} else {
-		filename = fmt.Sprintf("%s/%s.rlp.%d", dir, outputPrefix, batchNum)
-	}
-
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", filename, err)
-	}
-	defer file.Close()
-
-	// Write each block as RLP encoded data
-	for _, block := range blocks {
-		if err := rlp.Encode(file, block); err != nil {
-			return fmt.Errorf("failed to encode block %d: %w", block.NumberU64(), err)
-		}
-	}
-
 	return nil
 }
 
@@ -971,21 +936,17 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		Nonce:       types.EncodeNonce(pbBlock.Header.Nonce),
 	}
 
-	// Handle post-London fork fields (EIP-1559)
 	if pbBlock.Header.BaseFeePerGas != nil {
 		header.BaseFee = pbBlock.Header.BaseFeePerGas.Native()
 	}
 
-	// Convert transactions - simplified approach
+	// Convert transactions
 	var txs []*types.Transaction
 	for _, pbTx := range pbBlock.TransactionTraces {
-		// Skip if transaction data is incomplete
 		if pbTx == nil {
 			continue
 		}
 
-		// Create a basic transaction from available data
-		// Note: This is simplified - in production you'd want more robust conversion
 		var tx *types.Transaction
 		if pbTx.To != nil {
 			tx = types.NewTransaction(
@@ -997,7 +958,6 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 				pbTx.Input,
 			)
 		} else {
-			// Contract creation transaction
 			tx = types.NewContractCreation(
 				pbTx.Nonce,
 				pbTx.Value.Native(),
@@ -1046,7 +1006,38 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		Uncles:       uncles,
 	}
 
-	// Create the block with header, transactions, and uncles
-	// Note: receipts and withdrawals are set to nil as they're not needed for basic block import
+	// TODO: Receipts and Hasher
+
+	// Create block
 	return types.NewBlock(header, body, nil, nil), nil
+}
+
+// writeBatch writes a batch of blocks to an RLP file
+func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
+	dir := "rlp-data"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
+
+	var filename string
+	if batchNum == 0 {
+		filename = fmt.Sprintf("%s/%s.rlp", dir, outputPrefix)
+	} else {
+		filename = fmt.Sprintf("%s/%s.rlp.%d", dir, outputPrefix, batchNum)
+	}
+
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", filename, err)
+	}
+	defer file.Close()
+
+	// Write each block as RLP encoded data
+	for _, block := range blocks {
+		if err := rlp.Encode(file, block); err != nil {
+			return fmt.Errorf("failed to encode block %d: %w", block.NumberU64(), err)
+		}
+	}
+
+	return nil
 }
