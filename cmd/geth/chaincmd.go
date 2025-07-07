@@ -262,6 +262,8 @@ helps reduce storage requirements for nodes that don't need full historical data
 		},
 		Description: `
 Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and writes them in RLP format compatible with 'geth import'.
+
+Authentication: The Firehose endpoint may require an API token. By default, this command will look for the token in the FIREHOSE_API_TOKEN environment variable. You can override this by using the --api-token-env flag to specify a different environment variable name.
 `,
 	}
 )
