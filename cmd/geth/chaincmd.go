@@ -842,7 +842,6 @@ func exportFromFirehose(ctx *cli.Context) error {
 	if ctx.Args().Len() < 1 {
 		return fmt.Errorf("missing required <firehose-endpoint> argument")
 	}
-
 	if !ctx.IsSet("start-block") {
 		return fmt.Errorf("missing required --start-block flag")
 	}
@@ -854,13 +853,11 @@ func exportFromFirehose(ctx *cli.Context) error {
 	startBlock := ctx.Int64("start-block")
 	endBlock := ctx.Uint64("end-block")
 
-	// Create firehose client using the firehose-core library
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Firehose client: %w", err)
 	}
 	defer closeFunc()
-
 	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
 	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
@@ -871,114 +868,127 @@ func exportFromFirehose(ctx *cli.Context) error {
 		return fmt.Errorf("failed to start block stream: %w", err)
 	}
 
-	type batchJob struct {
-		blocks   []*types.Block
-		prefix   string
-		batchNum int
-		done     chan error
+	type seqResponse struct {
+		seq  uint64
+		resp *pbfirehose.Response
 	}
 
-	jobs := make(chan batchJob, 4) // buffered channel for jobs
-	var wg sync.WaitGroup
-	var writeErr error
+	type seqBlock struct {
+		seq   uint64
+		block *types.Block
+	}
 
-	// Start a single worker goroutine for writing batches
+	// Channels for pipelining
+	rawCh := make(chan seqResponse, 100)
+	blockCh := make(chan seqBlock, 100)
+	errCh := make(chan error, 1)
+	doneCh := make(chan struct{})
+
+	// Stage 1: Stream reader goroutine with sequence numbers
 	go func() {
-		for job := range jobs {
-			err := writeBatch(job.blocks, job.prefix, job.batchNum)
-			job.done <- err
-			close(job.done)
+		defer close(rawCh)
+		var seq uint64
+		for {
+			resp, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				errCh <- fmt.Errorf("error receiving from stream: %w", err)
+				return
+			}
+			rawCh <- seqResponse{seq: seq, resp: resp}
+			seq++
 		}
 	}()
 
-	var blocks []*types.Block
-	var batchNum int
-	var totalBlocks int
+	// Stage 2: Converter pool
+	workerCount := 100
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer wg.Done()
+			for sr := range rawCh {
+				ethBlock := &pbeth.Block{}
+				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
+					fmt.Printf("failed to unmarshal block: %v\n", err)
+					continue
+				}
+				block, err := convertFirehoseBlockToGethBlock(ethBlock)
+				if err != nil {
+					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
+					continue
+				}
+				blockCh <- seqBlock{seq: sr.seq, block: block}
+			}
+		}()
+	}
 
-	// Process blocks from the stream
-	for {
-		response, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
+	// Close blockCh when all workers are done
+	go func() {
+		wg.Wait()
+		close(blockCh)
+	}()
+
+	// Stage 3: Batching and writing in order
+	go func() {
+		var (
+			blocks      []*types.Block
+			batchNum    int
+			totalBlocks int
+			writeErr    error
+			nextSeq     uint64 = 0
+			buffer             = make(map[uint64]*types.Block)
+		)
+		for sb := range blockCh {
+			buffer[sb.seq] = sb.block
+			// Drain in-order blocks from buffer
+			for {
+				block, ok := buffer[nextSeq]
+				if !ok {
+					break
+				}
+				blocks = append(blocks, block)
+				totalBlocks++
+				delete(buffer, nextSeq)
+				nextSeq++
+				if len(blocks) >= batchSize {
+					if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
+						writeErr = err
+						break
+					}
+					fmt.Printf("Wrote batch %d with %d blocks (total: %d, last block: %d)\n", batchNum, len(blocks), totalBlocks, block.NumberU64())
+					blocks = blocks[:0]
+					batchNum++
+				}
+			}
+			if writeErr != nil {
 				break
 			}
-			return fmt.Errorf("error receiving from stream: %w", err)
 		}
-
-		// Extract the Ethereum block from the response
-		ethBlock := &pbeth.Block{}
-		if err := response.Block.UnmarshalTo(ethBlock); err != nil {
-			return fmt.Errorf("failed to unmarshal block: %w", err)
-		}
-
-		// Convert to geth block format
-		block, err := convertFirehoseBlockToGethBlock(ethBlock)
-		if err != nil {
-			fmt.Printf("Warning: failed to convert block %d: %v\n", ethBlock.Number, err)
-			continue
-		}
-
-		blocks = append(blocks, block)
-		totalBlocks++
-
-		// Write batch when it reaches the specified size
-		if len(blocks) >= batchSize {
-			job := batchJob{
-				blocks:   append([]*types.Block(nil), blocks...), // copy to avoid reuse
-				prefix:   outputPrefix,
-				batchNum: batchNum,
-				done:     make(chan error, 1),
-			}
-			jobs <- job
-			wg.Add(1)
-			go func(j batchJob, count int, firstBlock int64, lastBlock uint64) {
-				defer wg.Done()
-				if err := <-j.done; err != nil {
-					fmt.Printf("Failed to write batch %d: %v\n", j.batchNum, err)
-					writeErr = err
-				} else {
-					fmt.Printf("Wrote batch %d with %d blocks (total: %d, from block %d to block %d)\n", j.batchNum, len(j.blocks), count, firstBlock, lastBlock)
-				}
-			}(job, totalBlocks, int64(uint64(startBlock)+uint64(len(blocks))*uint64(batchNum)), block.NumberU64())
-			blocks = blocks[:0]
-			batchNum++
-		}
-
-		if totalBlocks%1000 == 0 {
-			fmt.Printf("Processed %d blocks (from block %d to block %d)...\n", totalBlocks, startBlock, block.NumberU64())
-		}
-	}
-
-	// Write any remaining blocks
-	if len(blocks) > 0 {
-		job := batchJob{
-			blocks:   append([]*types.Block(nil), blocks...),
-			prefix:   outputPrefix,
-			batchNum: batchNum,
-			done:     make(chan error, 1),
-		}
-		jobs <- job
-		wg.Add(1)
-		go func(j batchJob, count int) {
-			defer wg.Done()
-			if err := <-j.done; err != nil {
-				fmt.Printf("Failed to write final batch %d: %v\n", j.batchNum, err)
+		// Write any remaining blocks
+		if len(blocks) > 0 && writeErr == nil {
+			if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
 				writeErr = err
 			} else {
-				fmt.Printf("Wrote final batch %d with %d blocks\n", j.batchNum, len(j.blocks))
+				fmt.Printf("Wrote final batch %d with %d blocks\n", batchNum, len(blocks))
 			}
-		}(job, totalBlocks)
+		}
+		if writeErr != nil {
+			errCh <- writeErr
+		}
+		close(doneCh)
+	}()
+
+	// Wait for completion or error
+	select {
+	case err := <-errCh:
+		return err
+	case <-doneCh:
+		fmt.Println("Export completed successfully.")
+		return nil
 	}
-
-	close(jobs)
-	wg.Wait() // wait for all batches to finish
-
-	if writeErr != nil {
-		return writeErr
-	}
-
-	fmt.Printf("Export completed successfully. Total blocks exported: %d\n", totalBlocks)
-	return nil
 }
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
