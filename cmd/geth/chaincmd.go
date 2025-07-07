@@ -34,6 +34,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -251,8 +252,7 @@ helps reduce storage requirements for nodes that don't need full historical data
 			},
 			&cli.Int64Flag{
 				Name:  "start-block",
-				Usage: "Start block number (inclusive, default: 1)",
-				Value: 1,
+				Usage: "Start block number (inclusive)",
 			},
 			&cli.Uint64Flag{
 				Name:  "end-block",
@@ -841,6 +841,10 @@ func exportFromFirehose(ctx *cli.Context) error {
 		return fmt.Errorf("missing required <firehose-endpoint> argument")
 	}
 
+	if !ctx.IsSet("start-block") {
+		return fmt.Errorf("missing required --start-block flag")
+	}
+
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
 	endpoint := ctx.Args().First()
 	batchSize := ctx.Int("batch-size")
@@ -865,11 +869,31 @@ func exportFromFirehose(ctx *cli.Context) error {
 		return fmt.Errorf("failed to start block stream: %w", err)
 	}
 
-	// Process blocks from the stream
+	type batchJob struct {
+		blocks   []*types.Block
+		prefix   string
+		batchNum int
+		done     chan error
+	}
+
+	jobs := make(chan batchJob, 4) // buffered channel for jobs
+	var wg sync.WaitGroup
+	var writeErr error
+
+	// Start a single worker goroutine for writing batches
+	go func() {
+		for job := range jobs {
+			err := writeBatch(job.blocks, job.prefix, job.batchNum)
+			job.done <- err
+			close(job.done)
+		}
+	}()
+
 	var blocks []*types.Block
 	var batchNum int
 	var totalBlocks int
 
+	// Process blocks from the stream
 	for {
 		response, err := stream.Recv()
 		if err != nil {
@@ -897,10 +921,23 @@ func exportFromFirehose(ctx *cli.Context) error {
 
 		// Write batch when it reaches the specified size
 		if len(blocks) >= batchSize {
-			if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-				return fmt.Errorf("failed to write batch %d: %w", batchNum, err)
+			job := batchJob{
+				blocks:   append([]*types.Block(nil), blocks...), // copy to avoid reuse
+				prefix:   outputPrefix,
+				batchNum: batchNum,
+				done:     make(chan error, 1),
 			}
-			fmt.Printf("Wrote batch %d with %d blocks (total: %d, from block %d to block %d)\n", batchNum, len(blocks), totalBlocks, uint64(startBlock)+uint64(len(blocks))*uint64(batchNum), block.NumberU64())
+			jobs <- job
+			wg.Add(1)
+			go func(j batchJob, count int, firstBlock int64, lastBlock uint64) {
+				defer wg.Done()
+				if err := <-j.done; err != nil {
+					fmt.Printf("Failed to write batch %d: %v\n", j.batchNum, err)
+					writeErr = err
+				} else {
+					fmt.Printf("Wrote batch %d with %d blocks (total: %d, from block %d to block %d)\n", j.batchNum, len(j.blocks), count, firstBlock, lastBlock)
+				}
+			}(job, totalBlocks, int64(uint64(startBlock)+uint64(len(blocks))*uint64(batchNum)), block.NumberU64())
 			blocks = blocks[:0]
 			batchNum++
 		}
@@ -912,10 +949,30 @@ func exportFromFirehose(ctx *cli.Context) error {
 
 	// Write any remaining blocks
 	if len(blocks) > 0 {
-		if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-			return fmt.Errorf("failed to write final batch: %w", err)
+		job := batchJob{
+			blocks:   append([]*types.Block(nil), blocks...),
+			prefix:   outputPrefix,
+			batchNum: batchNum,
+			done:     make(chan error, 1),
 		}
-		fmt.Printf("Wrote final batch %d with %d blocks\n", batchNum, len(blocks))
+		jobs <- job
+		wg.Add(1)
+		go func(j batchJob, count int) {
+			defer wg.Done()
+			if err := <-j.done; err != nil {
+				fmt.Printf("Failed to write final batch %d: %v\n", j.batchNum, err)
+				writeErr = err
+			} else {
+				fmt.Printf("Wrote final batch %d with %d blocks\n", j.batchNum, len(j.blocks))
+			}
+		}(job, totalBlocks)
+	}
+
+	close(jobs)
+	wg.Wait() // wait for all batches to finish
+
+	if writeErr != nil {
+		return writeErr
 	}
 
 	fmt.Printf("Export completed successfully. Total blocks exported: %d\n", totalBlocks)
@@ -1080,9 +1137,9 @@ func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error 
 
 	var filename string
 	if batchNum == 0 {
-		filename = fmt.Sprintf("%s/%s.rlp", dir, outputPrefix)
+		filename = filepath.Join(dir, fmt.Sprintf("%s.rlp", outputPrefix))
 	} else {
-		filename = fmt.Sprintf("%s/%s.rlp.%d", dir, outputPrefix, batchNum)
+		filename = filepath.Join(dir, fmt.Sprintf("%s.rlp.%d", outputPrefix, batchNum))
 	}
 
 	file, err := os.Create(filename)
