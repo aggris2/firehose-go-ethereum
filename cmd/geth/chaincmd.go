@@ -56,6 +56,8 @@ import (
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/trie"
+	"github.com/holiman/uint256"
 	"github.com/streamingfast/firehose-core/firehose/client"
 	"github.com/urfave/cli/v2"
 )
@@ -1049,30 +1051,83 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		}
 
 		var tx *types.Transaction
-		if pbTx.To != nil {
+		switch pbTx.Type {
+		case 0: // LegacyTx
 			tx = types.NewTx(&types.LegacyTx{
 				Nonce:    pbTx.Nonce,
+				GasPrice: pbTx.GasPrice.Native(),
+				Gas:      pbTx.GasLimit,
 				To:       func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
 				Value:    pbTx.Value.Native(),
-				Gas:      pbTx.GasLimit,
-				GasPrice: pbTx.GasPrice.Native(),
 				Data:     pbTx.Input,
 				V:        new(big.Int).SetBytes(pbTx.V),
 				R:        new(big.Int).SetBytes(pbTx.R),
 				S:        new(big.Int).SetBytes(pbTx.S),
 			})
-		} else {
-			tx = types.NewTx(&types.LegacyTx{
-				Nonce:    pbTx.Nonce,
-				To:       nil,
-				Value:    pbTx.Value.Native(),
-				Gas:      pbTx.GasLimit,
-				GasPrice: pbTx.GasPrice.Native(),
-				Data:     pbTx.Input,
-				V:        new(big.Int).SetBytes(pbTx.V),
-				R:        new(big.Int).SetBytes(pbTx.R),
-				S:        new(big.Int).SetBytes(pbTx.S),
+		case 1: // AccessListTx
+			tx = types.NewTx(&types.AccessListTx{
+				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations).ToBig(),
+				Nonce:      pbTx.Nonce,
+				GasPrice:   pbTx.GasPrice.Native(),
+				Gas:        pbTx.GasLimit,
+				To:         func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				Value:      pbTx.Value.Native(),
+				Data:       pbTx.Input,
+				AccessList: convertFirehoseAccessList(pbTx.AccessList),
+				V:          new(big.Int).SetBytes(pbTx.V),
+				R:          new(big.Int).SetBytes(pbTx.R),
+				S:          new(big.Int).SetBytes(pbTx.S),
 			})
+		case 2: // DynamicFeeTx
+			tx = types.NewTx(&types.DynamicFeeTx{
+				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations).ToBig(),
+				Nonce:      pbTx.Nonce,
+				GasTipCap:  pbTx.MaxPriorityFeePerGas.Native(),
+				GasFeeCap:  pbTx.MaxFeePerGas.Native(),
+				Gas:        pbTx.GasLimit,
+				To:         func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				Value:      pbTx.Value.Native(),
+				Data:       pbTx.Input,
+				AccessList: convertFirehoseAccessList(pbTx.AccessList),
+				V:          new(big.Int).SetBytes(pbTx.V),
+				R:          new(big.Int).SetBytes(pbTx.R),
+				S:          new(big.Int).SetBytes(pbTx.S),
+			})
+		case 3: // BlobTx
+			tx = types.NewTx(&types.BlobTx{
+				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations),
+				Nonce:      pbTx.Nonce,
+				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
+				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
+				Gas:        pbTx.GasLimit,
+				To:         common.BytesToAddress(pbTx.To),
+				Value:      bigIntToUint256(pbTx.Value.Native()),
+				Data:       pbTx.Input,
+				AccessList: convertFirehoseAccessList(pbTx.AccessList),
+				BlobFeeCap: bigIntToUint256(pbTx.BlobGasFeeCap.Native()),
+				BlobHashes: convertFirehoseBlobHashes(pbTx.BlobHashes),
+				V:          bigIntToUint256(new(big.Int).SetBytes(pbTx.V)),
+				R:          bigIntToUint256(new(big.Int).SetBytes(pbTx.R)),
+				S:          bigIntToUint256(new(big.Int).SetBytes(pbTx.S)),
+			})
+		case 4: // SetCodeTx
+			tx = types.NewTx(&types.SetCodeTx{
+				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations),
+				Nonce:      pbTx.Nonce,
+				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
+				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
+				Gas:        pbTx.GasLimit,
+				To:         common.BytesToAddress(pbTx.To),
+				Value:      bigIntToUint256(pbTx.Value.Native()),
+				Data:       pbTx.Input,
+				AccessList: convertFirehoseAccessList(pbTx.AccessList),
+				AuthList:   convertFirehoseSetCodeAuthorizations(pbTx.SetCodeAuthorizations),
+				V:          bigIntToUint256(new(big.Int).SetBytes(pbTx.V)),
+				R:          bigIntToUint256(new(big.Int).SetBytes(pbTx.R)),
+				S:          bigIntToUint256(new(big.Int).SetBytes(pbTx.S)),
+			})
+		default:
+			continue
 		}
 
 		if tx != nil {
@@ -1163,11 +1218,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		Uncles:       uncles,
 	}
 
-	// Receipts
-	// TODO: Hasher
-
-	// Create block
-	return types.NewBlock(header, body, receipts, nil), nil
+	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
 }
 
 // Helper to convert Firehose logs to geth logs
@@ -1202,6 +1253,70 @@ func convertFirehoseTopicsToGethTopics(pbTopics [][]byte) []common.Hash {
 	return topics
 }
 
+// Helper to convert Firehose AccessList to geth AccessList
+func convertFirehoseAccessList(pbList []*pbeth.AccessTuple) types.AccessList {
+	if len(pbList) == 0 {
+		return nil
+	}
+	alist := make(types.AccessList, len(pbList))
+	for i, tuple := range pbList {
+		alist[i] = types.AccessTuple{
+			Address:     common.BytesToAddress(tuple.Address),
+			StorageKeys: convertFirehoseStorageKeys(tuple.StorageKeys),
+		}
+	}
+	return alist
+}
+
+func convertFirehoseSetCodeAuthorizations(pbAuths []*pbeth.SetCodeAuthorization) []types.SetCodeAuthorization {
+	if len(pbAuths) == 0 {
+		return nil
+	}
+	auths := make([]types.SetCodeAuthorization, len(pbAuths))
+	for i, pb := range pbAuths {
+		auths[i] = types.SetCodeAuthorization{
+			ChainID: *uint256.MustFromBig(new(big.Int).SetBytes(pb.ChainId)),
+			Address: common.BytesToAddress(pb.Address),
+			Nonce:   pb.Nonce,
+			V:       uint8(pb.V),
+			R:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.R)),
+			S:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.S)),
+		}
+	}
+	return auths
+}
+
+func convertFirehoseStorageKeys(pbKeys [][]byte) []common.Hash {
+	if len(pbKeys) == 0 {
+		return nil
+	}
+	keys := make([]common.Hash, len(pbKeys))
+	for i, k := range pbKeys {
+		keys[i] = common.BytesToHash(k)
+	}
+	return keys
+}
+
+// Helper to convert Firehose BlobHashes to geth []common.Hash
+func convertFirehoseBlobHashes(pbHashes [][]byte) []common.Hash {
+	if len(pbHashes) == 0 {
+		return nil
+	}
+	hashes := make([]common.Hash, len(pbHashes))
+	for i, h := range pbHashes {
+		hashes[i] = common.BytesToHash(h)
+	}
+	return hashes
+}
+
+// Helper to convert big.Int to uint256.Int
+func bigIntToUint256(b *big.Int) *uint256.Int {
+	if b == nil {
+		return uint256.NewInt(0)
+	}
+	return uint256.MustFromBig(b)
+}
+
 // writeBatch writes a batch of blocks to an RLP file
 func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
 	dir := "rlp-data"
@@ -1229,5 +1344,18 @@ func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error 
 		}
 	}
 
+	return nil
+}
+
+// Extracts chainID from the first non-nil, non-discarded SetCodeAuthorization
+func extractChainIDFromSetCodeAuth(pbAuths []*pbeth.SetCodeAuthorization) *uint256.Int {
+	for _, auth := range pbAuths {
+		if auth == nil || auth.Discarded {
+			continue
+		}
+		if len(auth.ChainId) > 0 {
+			return uint256.MustFromBig(new(big.Int).SetBytes(auth.ChainId))
+		}
+	}
 	return nil
 }
