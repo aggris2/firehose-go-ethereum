@@ -1042,6 +1042,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 
 	// Convert transactions
 	var txs []*types.Transaction
+	var receipts types.Receipts
 	for _, pbTx := range pbBlock.TransactionTraces {
 		if pbTx == nil {
 			continue
@@ -1077,6 +1078,34 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		if tx != nil {
 			txs = append(txs, tx)
 		}
+
+		// Convert receipt if present
+		if pbTx.Receipt != nil {
+			receipt := &types.Receipt{
+				Type:              uint8(pbTx.Type),
+				PostState:         pbTx.Receipt.StateRoot,
+				CumulativeGasUsed: pbTx.Receipt.CumulativeGasUsed,
+				Bloom:             types.BytesToBloom(pbTx.Receipt.LogsBloom),
+				Logs:              convertFirehoseLogsToGethLogs(pbTx.Receipt.Logs),
+				GasUsed:           pbTx.GasUsed,
+			}
+
+			if len(pbTx.Receipt.StateRoot) == 0 {
+				if pbTx.Status == 1 {
+					receipt.Status = types.ReceiptStatusSuccessful
+				} else {
+					receipt.Status = types.ReceiptStatusFailed
+				}
+			}
+
+			if pbTx.Receipt.BlobGasUsed != nil {
+				receipt.BlobGasUsed = *pbTx.Receipt.BlobGasUsed
+			}
+			if pbTx.Receipt.BlobGasPrice != nil {
+				receipt.BlobGasPrice = pbTx.Receipt.BlobGasPrice.Native()
+			}
+			receipts = append(receipts, receipt)
+		}
 	}
 
 	// Convert uncles
@@ -1107,23 +1136,23 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		}
 
 		if pbUncle.WithdrawalsRoot != nil {
-			header.WithdrawalsHash = (*common.Hash)(pbBlock.Header.WithdrawalsRoot)
+			uncle.WithdrawalsHash = (*common.Hash)(pbUncle.WithdrawalsRoot)
 		}
 
 		if pbUncle.BlobGasUsed != nil {
-			header.BlobGasUsed = pbBlock.Header.BlobGasUsed
+			uncle.BlobGasUsed = pbUncle.BlobGasUsed
 		}
 
 		if pbUncle.ExcessBlobGas != nil {
-			header.ExcessBlobGas = pbBlock.Header.ExcessBlobGas
+			uncle.ExcessBlobGas = pbUncle.ExcessBlobGas
 		}
 
 		if pbUncle.ParentBeaconRoot != nil {
-			header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.ParentBeaconRoot)
+			uncle.ParentBeaconRoot = (*common.Hash)(pbUncle.ParentBeaconRoot)
 		}
 
 		if pbUncle.RequestsHash != nil {
-			header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.RequestsHash)
+			uncle.ParentBeaconRoot = (*common.Hash)(pbUncle.RequestsHash)
 		}
 
 		uncles = append(uncles, uncle)
@@ -1134,10 +1163,43 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 		Uncles:       uncles,
 	}
 
-	// TODO: Receipts and Hasher
+	// Receipts
+	// TODO: Hasher
 
 	// Create block
-	return types.NewBlock(header, body, nil, nil), nil
+	return types.NewBlock(header, body, receipts, nil), nil
+}
+
+// Helper to convert Firehose logs to geth logs
+func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log) []*types.Log {
+	logs := make([]*types.Log, 0, len(pbLogs))
+	for _, pbLog := range pbLogs {
+		if pbLog == nil {
+			continue
+		}
+		log := &types.Log{
+			Address:     common.BytesToAddress(pbLog.Address),
+			Topics:      convertFirehoseTopicsToGethTopics(pbLog.Topics),
+			Data:        pbLog.Data,
+			BlockNumber: uint64(pbLog.BlockIndex),
+			Index:       uint(pbLog.Index),
+			// Ordinal:     pbLog.Ordinal,
+			// TxHash:      common.Hash(pbLog.TransactionHash),
+			// TxIndex:     uint(pbLog.TransactionIndex),
+			// Removed:     pbLog.Removed,
+		}
+		logs = append(logs, log)
+	}
+	return logs
+}
+
+// Helper to convert Firehose topics to geth topics
+func convertFirehoseTopicsToGethTopics(pbTopics [][]byte) []common.Hash {
+	topics := make([]common.Hash, len(pbTopics))
+	for i, t := range pbTopics {
+		topics[i] = common.BytesToHash(t)
+	}
+	return topics
 }
 
 // writeBatch writes a batch of blocks to an RLP file
