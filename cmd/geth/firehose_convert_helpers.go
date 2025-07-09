@@ -126,7 +126,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 				Data:       pbTx.Input,
 				AccessList: convertFirehoseAccessList(pbTx.AccessList),
 				BlobFeeCap: bigIntToUint256(pbTx.BlobGasFeeCap.Native()),
-				BlobHashes: convertFirehoseBlobHashes(pbTx.BlobHashes),
+				BlobHashes: convertBytesToHashes(pbTx.BlobHashes),
 				V:          bigIntToUint256(new(big.Int).SetBytes(pbTx.V)),
 				R:          bigIntToUint256(new(big.Int).SetBytes(pbTx.R)),
 				S:          bigIntToUint256(new(big.Int).SetBytes(pbTx.S)),
@@ -283,24 +283,13 @@ func convertFirehoseAccessList(pbList []*pbeth.AccessTuple) types.AccessList {
 	for i, tuple := range pbList {
 		alist[i] = types.AccessTuple{
 			Address:     common.BytesToAddress(tuple.Address),
-			StorageKeys: convertFirehoseStorageKeys(tuple.StorageKeys),
+			StorageKeys: convertBytesToHashes(tuple.StorageKeys),
 		}
 	}
 	return alist
 }
 
-// Helper to convert Firehose BlobHashes to geth []common.Hash
-func convertFirehoseBlobHashes(pbHashes [][]byte) []common.Hash {
-	if len(pbHashes) == 0 {
-		return nil
-	}
-	hashes := make([]common.Hash, len(pbHashes))
-	for i, h := range pbHashes {
-		hashes[i] = common.BytesToHash(h)
-	}
-	return hashes
-}
-
+// Helper to convert Firehose SetCodeAuthorization to geth SetCodeAuthorization
 func convertFirehoseSetCodeAuthorizations(pbAuths []*pbeth.SetCodeAuthorization) []types.SetCodeAuthorization {
 	if len(pbAuths) == 0 {
 		return nil
@@ -328,7 +317,7 @@ func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionT
 		}
 		log := &types.Log{
 			Address:        common.BytesToAddress(pbLog.Address),
-			Topics:         convertFirehoseTopicsToGethTopics(pbLog.Topics),
+			Topics:         convertBytesToHashes(pbLog.Topics),
 			Data:           pbLog.Data,
 			BlockNumber:    uint64(pbLog.BlockIndex),
 			TxHash:         common.BytesToHash(pbTx.Hash),
@@ -347,24 +336,16 @@ func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionT
 	return logs
 }
 
-// Helper to convert Firehose topics to geth topics
-func convertFirehoseTopicsToGethTopics(pbTopics [][]byte) []common.Hash {
-	topics := make([]common.Hash, len(pbTopics))
-	for i, t := range pbTopics {
-		topics[i] = common.BytesToHash(t)
-	}
-	return topics
-}
-
-func convertFirehoseStorageKeys(pbKeys [][]byte) []common.Hash {
-	if len(pbKeys) == 0 {
+// Generic helper to convert [][]byte to []common.Hash
+func convertBytesToHashes(pbBytes [][]byte) []common.Hash {
+	if len(pbBytes) == 0 {
 		return nil
 	}
-	keys := make([]common.Hash, len(pbKeys))
-	for i, k := range pbKeys {
-		keys[i] = common.BytesToHash(k)
+	hashes := make([]common.Hash, len(pbBytes))
+	for i, b := range pbBytes {
+		hashes[i] = common.BytesToHash(b)
 	}
-	return keys
+	return hashes
 }
 
 // Helper to convert big.Int to uint256.Int
