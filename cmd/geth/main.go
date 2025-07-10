@@ -221,7 +221,6 @@ func init() {
 		dumpGenesisCommand,
 		pruneHistoryCommand,
 		downloadEraCommand,
-		exportFromFirehoseCommand,
 		importFromFirehoseCommand,
 		// See accountcmd.go:
 		accountCommand,

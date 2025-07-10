@@ -232,39 +232,6 @@ helps reduce storage requirements for nodes that don't need full historical data
 		),
 	}
 
-	exportFromFirehoseCommand = &cli.Command{
-		Action:    exportFromFirehose,
-		Name:      "export-from-firehose",
-		Usage:     "Export blocks from a Firehose gRPC endpoint to an RLP file",
-		ArgsUsage: "<firehose-endpoint>",
-		Flags: []cli.Flag{
-			&cli.IntFlag{
-				Name:  "batch-size",
-				Usage: "Number of blocks per RLP file batch",
-				Value: 1000,
-			},
-			&cli.StringFlag{
-				Name:  "output",
-				Usage: "Output file prefix (will append .rlp, .rlp.1, etc.)",
-				Value: "firehose_export",
-			},
-			&cli.Int64Flag{
-				Name:  "start-block",
-				Usage: "Start block number (inclusive)",
-			},
-			&cli.Uint64Flag{
-				Name:  "end-block",
-				Usage: "End block number (inclusive, default: unlimited)",
-				Value: 0,
-			},
-		},
-		Description: `
-Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and writes them in RLP format compatible with 'geth import'.
-
-Authentication: The Firehose endpoint may require an API token. By default, this command will look for the token in the FIREHOSE_API_TOKEN environment variable.
-`,
-	}
-
 	importFromFirehoseCommand = &cli.Command{
 		Action:    importFromFirehose,
 		Name:      "import-from-firehose",
@@ -864,43 +831,6 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 		return start, end, true
 	}
 	return 0, 0, false
-}
-
-func exportFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 1 {
-		return fmt.Errorf("missing required <firehose-endpoint> argument")
-	}
-	if !ctx.IsSet("start-block") {
-		return fmt.Errorf("missing required --start-block flag")
-	}
-
-	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
-	endpoint := ctx.Args().First()
-	batchSize := ctx.Int("batch-size")
-	outputPrefix := ctx.String("output")
-	startBlock := ctx.Int64("start-block")
-	endBlock := ctx.Uint64("end-block")
-
-	var totalBlocks int
-	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
-		if len(blocks) == 0 {
-			return nil
-		}
-		firstNum := blocks[0].NumberU64()
-		lastNum := blocks[len(blocks)-1].NumberU64()
-		if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-			fmt.Printf("failed to write batch %d (blocks %d-%d): %v\n", batchNum, firstNum, lastNum, err)
-			return err
-		}
-		fmt.Printf("Wrote batch %d with %d blocks (blocks %d-%d)\n", batchNum, len(blocks), firstNum, lastNum)
-		totalBlocks += len(blocks)
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	fmt.Printf("Export completed successfully. Total blocks exported: %d\n", totalBlocks)
-	return nil
 }
 
 func importFromFirehose(ctx *cli.Context) error {

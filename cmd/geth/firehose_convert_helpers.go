@@ -5,13 +5,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"math/big"
-	"os"
-	"path/filepath"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -366,34 +363,5 @@ func extractChainIDFromSetCodeAuth(pbAuths []*pbeth.SetCodeAuthorization) *uint2
 			return uint256.MustFromBig(new(big.Int).SetBytes(auth.ChainId))
 		}
 	}
-	return nil
-}
-
-// writeBatch writes a batch of blocks to an RLP file
-func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
-	var filename string
-	if batchNum == 0 {
-		filename = filepath.Join("rlp-data", fmt.Sprintf("%s.rlp", outputPrefix))
-	} else {
-		filename = filepath.Join("rlp-data", fmt.Sprintf("%s.rlp.%d", outputPrefix, batchNum))
-	}
-
-	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(filename), err)
-	}
-
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", filename, err)
-	}
-	defer file.Close()
-
-	// Write each block as RLP encoded data
-	for _, block := range blocks {
-		if err := rlp.Encode(file, block); err != nil {
-			return fmt.Errorf("failed to encode block %d: %w", block.NumberU64(), err)
-		}
-	}
-
 	return nil
 }
