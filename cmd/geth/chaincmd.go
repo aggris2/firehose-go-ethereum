@@ -243,11 +243,6 @@ helps reduce storage requirements for nodes that don't need full historical data
 				Usage: "Number of blocks to import per batch",
 				Value: 1000,
 			},
-			&cli.StringFlag{
-				Name:  "output",
-				Usage: "(Unused, for compatibility)",
-				Value: "firehose_import",
-			},
 			&cli.Int64Flag{
 				Name:  "start-block",
 				Usage: "Start block number (inclusive)",
