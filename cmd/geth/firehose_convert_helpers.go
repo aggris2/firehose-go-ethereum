@@ -371,16 +371,15 @@ func extractChainIDFromSetCodeAuth(pbAuths []*pbeth.SetCodeAuthorization) *uint2
 
 // writeBatch writes a batch of blocks to an RLP file
 func writeBatch(blocks []*types.Block, outputPrefix string, batchNum int) error {
-	dir := "rlp-data"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", dir, err)
-	}
-
 	var filename string
 	if batchNum == 0 {
-		filename = filepath.Join(dir, fmt.Sprintf("%s.rlp", outputPrefix))
+		filename = filepath.Join("rlp-data", fmt.Sprintf("%s.rlp", outputPrefix))
 	} else {
-		filename = filepath.Join(dir, fmt.Sprintf("%s.rlp.%d", outputPrefix, batchNum))
+		filename = filepath.Join("rlp-data", fmt.Sprintf("%s.rlp.%d", outputPrefix, batchNum))
+	}
+
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(filename), err)
 	}
 
 	file, err := os.Create(filename)
