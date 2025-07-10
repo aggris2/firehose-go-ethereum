@@ -866,7 +866,6 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 	return 0, 0, false
 }
 
-// exportFromFirehose is the handler for the export-from-firehose command.
 func exportFromFirehose(ctx *cli.Context) error {
 	if ctx.Args().Len() < 1 {
 		return fmt.Errorf("missing required <firehose-endpoint> argument")
@@ -882,6 +881,69 @@ func exportFromFirehose(ctx *cli.Context) error {
 	startBlock := ctx.Int64("start-block")
 	endBlock := ctx.Uint64("end-block")
 
+	var totalBlocks int
+	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
+		if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
+			fmt.Printf("failed to write batch %d ending at block %d: %v\n", batchNum, blocks[len(blocks)-1].NumberU64(), err)
+			return err
+		}
+		fmt.Printf("Wrote batch %d with %d blocks (last block: %d)\n", batchNum, len(blocks), blocks[len(blocks)-1].NumberU64())
+		totalBlocks += len(blocks)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Export completed successfully. Total blocks exported: %d\n", totalBlocks)
+	return nil
+}
+
+func importFromFirehose(ctx *cli.Context) error {
+	if ctx.Args().Len() < 1 {
+		return fmt.Errorf("missing required <firehose-endpoint> argument")
+	}
+	if !ctx.IsSet("start-block") {
+		return fmt.Errorf("missing required --start-block flag")
+	}
+
+	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
+	endpoint := ctx.Args().First()
+	batchSize := ctx.Int("batch-size")
+	startBlock := ctx.Int64("start-block")
+	endBlock := ctx.Uint64("end-block")
+
+	// Open Geth stack and chain
+	stack, cfg := makeConfigNode(ctx)
+	defer stack.Close()
+	utils.SetupMetrics(&cfg.Metrics)
+	chain, db := utils.MakeChain(ctx, stack, false)
+	defer db.Close()
+
+	var totalBlocks int
+	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
+		if _, err := chain.InsertChain(blocks); err != nil {
+			fmt.Printf("failed to import batch %d ending at block %d: %v\n", batchNum, blocks[len(blocks)-1].NumberU64(), err)
+			return err
+		}
+		fmt.Printf("Imported batch %d of %d blocks, last block: %d\n", batchNum, len(blocks), blocks[len(blocks)-1].NumberU64())
+		totalBlocks += len(blocks)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Import completed successfully. Total blocks imported: %d\n", totalBlocks)
+	return nil
+}
+
+func processFirehoseBlocks(
+	endpoint string,
+	apiToken string,
+	startBlock int64,
+	endBlock uint64,
+	batchSize int,
+	handler func(blocks []*types.Block, batchNum int) error,
+) error {
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Firehose client: %w", err)
@@ -901,13 +963,11 @@ func exportFromFirehose(ctx *cli.Context) error {
 		seq  uint64
 		resp *pbfirehose.Response
 	}
-
 	type seqBlock struct {
 		seq   uint64
 		block *types.Block
 	}
 
-	// Channels for pipelining
 	rawCh := make(chan seqResponse, 100)
 	blockCh := make(chan seqBlock, 100)
 	errCh := make(chan error, 1)
@@ -960,15 +1020,13 @@ func exportFromFirehose(ctx *cli.Context) error {
 		close(blockCh)
 	}()
 
-	// Stage 3: Batching and writing in order
+	// Stage 3: Batching and processing in order
 	go func() {
 		var (
-			blocks      []*types.Block
-			batchNum    int
-			totalBlocks int
-			writeErr    error
-			nextSeq     uint64 = 0
-			buffer             = make(map[uint64]*types.Block)
+			blocks   []*types.Block
+			batchNum int
+			nextSeq  uint64 = 0
+			buffer          = make(map[uint64]*types.Block)
 		)
 		for sb := range blockCh {
 			buffer[sb.seq] = sb.block
@@ -979,33 +1037,24 @@ func exportFromFirehose(ctx *cli.Context) error {
 					break
 				}
 				blocks = append(blocks, block)
-				totalBlocks++
 				delete(buffer, nextSeq)
 				nextSeq++
 				if len(blocks) >= batchSize {
-					if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-						writeErr = err
-						break
+					if err := handler(blocks, batchNum); err != nil {
+						errCh <- err
+						return
 					}
-					fmt.Printf("Wrote batch %d with %d blocks (total: %d, last block: %d)\n", batchNum, len(blocks), totalBlocks, block.NumberU64())
-					blocks = blocks[:0]
 					batchNum++
+					blocks = blocks[:0]
 				}
 			}
-			if writeErr != nil {
-				break
-			}
 		}
-		// Write any remaining blocks
-		if len(blocks) > 0 && writeErr == nil {
-			if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-				writeErr = err
-			} else {
-				fmt.Printf("Wrote final batch %d with %d blocks\n", batchNum, len(blocks))
+		// Process any remaining blocks
+		if len(blocks) > 0 {
+			if err := handler(blocks, batchNum); err != nil {
+				errCh <- err
+				return
 			}
-		}
-		if writeErr != nil {
-			errCh <- writeErr
 		}
 		close(doneCh)
 	}()
@@ -1015,89 +1064,6 @@ func exportFromFirehose(ctx *cli.Context) error {
 	case err := <-errCh:
 		return err
 	case <-doneCh:
-		fmt.Println("Export completed successfully.")
 		return nil
 	}
-}
-
-func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 1 {
-		return fmt.Errorf("missing required <firehose-endpoint> argument")
-	}
-	if !ctx.IsSet("start-block") {
-		return fmt.Errorf("missing required --start-block flag")
-	}
-
-	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
-	endpoint := ctx.Args().First()
-	batchSize := ctx.Int("batch-size")
-	startBlock := ctx.Int64("start-block")
-	endBlock := ctx.Uint64("end-block")
-
-	// Open Geth stack and chain
-	stack, cfg := makeConfigNode(ctx)
-	defer stack.Close()
-	utils.SetupMetrics(&cfg.Metrics)
-	chain, db := utils.MakeChain(ctx, stack, false)
-	defer db.Close()
-
-	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
-	if err != nil {
-		return fmt.Errorf("failed to create Firehose client: %w", err)
-	}
-	defer closeFunc()
-	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
-
-	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
-		StartBlockNum: startBlock,
-		StopBlockNum:  endBlock,
-	}, grpcOpts...)
-	if err != nil {
-		return fmt.Errorf("failed to start block stream: %w", err)
-	}
-
-	var (
-		blocks      []*types.Block
-		totalBlocks int
-	)
-	for {
-		resp, err := stream.Recv()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return fmt.Errorf("error receiving from stream: %w", err)
-		}
-		ethBlock := &pbeth.Block{}
-		if err := resp.Block.UnmarshalTo(ethBlock); err != nil {
-			fmt.Printf("failed to unmarshal block: %v\n", err)
-			continue
-		}
-		block, err := convertFirehoseBlockToGethBlock(ethBlock)
-		if err != nil {
-			fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
-			continue
-		}
-		blocks = append(blocks, block)
-		if len(blocks) >= batchSize {
-			if _, err := chain.InsertChain(blocks); err != nil {
-				fmt.Printf("failed to import batch ending at block %d: %v\n", block.NumberU64(), err)
-				return err
-			}
-			fmt.Printf("Imported batch of %d blocks, last block: %d\n", len(blocks), block.NumberU64())
-			totalBlocks += len(blocks)
-			blocks = blocks[:0]
-		}
-	}
-	// Import any remaining blocks
-	if len(blocks) > 0 {
-		if _, err := chain.InsertChain(blocks); err != nil {
-			fmt.Printf("failed to import final batch ending at block %d: %v\n", blocks[len(blocks)-1].NumberU64(), err)
-			return err
-		}
-		fmt.Printf("Imported final batch of %d blocks, last block: %d\n", len(blocks), blocks[len(blocks)-1].NumberU64())
-		totalBlocks += len(blocks)
-	}
-	fmt.Printf("Import completed successfully. Total blocks imported: %d\n", totalBlocks)
-	return nil
 }
