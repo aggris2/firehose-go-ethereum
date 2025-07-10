@@ -264,6 +264,37 @@ Connects to a Firehose gRPC endpoint, streams Ethereum blocks, batches them, and
 Authentication: The Firehose endpoint may require an API token. By default, this command will look for the token in the FIREHOSE_API_TOKEN environment variable.
 `,
 	}
+
+	importFromFirehoseCommand = &cli.Command{
+		Action:    importFromFirehose,
+		Name:      "import-from-firehose",
+		Usage:     "Import blocks from a Firehose gRPC endpoint directly into the chain database",
+		ArgsUsage: "<firehose-endpoint>",
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:  "batch-size",
+				Usage: "Number of blocks to import per batch",
+				Value: 1000,
+			},
+			&cli.StringFlag{
+				Name:  "output",
+				Usage: "(Unused, for compatibility)",
+				Value: "firehose_import",
+			},
+			&cli.Int64Flag{
+				Name:  "start-block",
+				Usage: "Start block number (inclusive)",
+			},
+			&cli.Uint64Flag{
+				Name:  "end-block",
+				Usage: "End block number (inclusive, default: unlimited)",
+				Value: 0,
+			},
+		},
+		Description: `
+Connects to a Firehose gRPC endpoint, streams Ethereum blocks, and imports them directly into the Geth chain database.
+`,
+	}
 )
 
 var (
@@ -987,4 +1018,86 @@ func exportFromFirehose(ctx *cli.Context) error {
 		fmt.Println("Export completed successfully.")
 		return nil
 	}
+}
+
+func importFromFirehose(ctx *cli.Context) error {
+	if ctx.Args().Len() < 1 {
+		return fmt.Errorf("missing required <firehose-endpoint> argument")
+	}
+	if !ctx.IsSet("start-block") {
+		return fmt.Errorf("missing required --start-block flag")
+	}
+
+	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
+	endpoint := ctx.Args().First()
+	batchSize := ctx.Int("batch-size")
+	startBlock := ctx.Int64("start-block")
+	endBlock := ctx.Uint64("end-block")
+
+	// Open Geth stack and chain
+	stack, cfg := makeConfigNode(ctx)
+	defer stack.Close()
+	utils.SetupMetrics(&cfg.Metrics)
+	chain, db := utils.MakeChain(ctx, stack, false)
+	defer db.Close()
+
+	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
+	if err != nil {
+		return fmt.Errorf("failed to create Firehose client: %w", err)
+	}
+	defer closeFunc()
+	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
+
+	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
+		StartBlockNum: startBlock,
+		StopBlockNum:  endBlock,
+	}, grpcOpts...)
+	if err != nil {
+		return fmt.Errorf("failed to start block stream: %w", err)
+	}
+
+	var (
+		blocks      []*types.Block
+		totalBlocks int
+	)
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("error receiving from stream: %w", err)
+		}
+		ethBlock := &pbeth.Block{}
+		if err := resp.Block.UnmarshalTo(ethBlock); err != nil {
+			fmt.Printf("failed to unmarshal block: %v\n", err)
+			continue
+		}
+		block, err := convertFirehoseBlockToGethBlock(ethBlock)
+		if err != nil {
+			fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
+			continue
+		}
+		blocks = append(blocks, block)
+		if len(blocks) >= batchSize {
+			if _, err := chain.InsertChain(blocks); err != nil {
+				fmt.Printf("failed to import batch ending at block %d: %v\n", block.NumberU64(), err)
+				return err
+			}
+			fmt.Printf("Imported batch of %d blocks, last block: %d\n", len(blocks), block.NumberU64())
+			totalBlocks += len(blocks)
+			blocks = blocks[:0]
+		}
+	}
+	// Import any remaining blocks
+	if len(blocks) > 0 {
+		if _, err := chain.InsertChain(blocks); err != nil {
+			fmt.Printf("failed to import final batch ending at block %d: %v\n", blocks[len(blocks)-1].NumberU64(), err)
+			return err
+		}
+		fmt.Printf("Imported final batch of %d blocks, last block: %d\n", len(blocks), blocks[len(blocks)-1].NumberU64())
+		totalBlocks += len(blocks)
+	}
+	fmt.Printf("Import completed successfully. Total blocks imported: %d\n", totalBlocks)
+	return nil
 }
