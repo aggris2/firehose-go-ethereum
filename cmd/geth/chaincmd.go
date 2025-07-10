@@ -883,11 +883,16 @@ func exportFromFirehose(ctx *cli.Context) error {
 
 	var totalBlocks int
 	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
+		if len(blocks) == 0 {
+			return nil
+		}
+		firstNum := blocks[0].NumberU64()
+		lastNum := blocks[len(blocks)-1].NumberU64()
 		if err := writeBatch(blocks, outputPrefix, batchNum); err != nil {
-			fmt.Printf("failed to write batch %d ending at block %d: %v\n", batchNum, blocks[len(blocks)-1].NumberU64(), err)
+			fmt.Printf("failed to write batch %d (blocks %d-%d): %v\n", batchNum, firstNum, lastNum, err)
 			return err
 		}
-		fmt.Printf("Wrote batch %d with %d blocks (last block: %d)\n", batchNum, len(blocks), blocks[len(blocks)-1].NumberU64())
+		fmt.Printf("Wrote batch %d with %d blocks (blocks %d-%d)\n", batchNum, len(blocks), firstNum, lastNum)
 		totalBlocks += len(blocks)
 		return nil
 	})
@@ -921,11 +926,16 @@ func importFromFirehose(ctx *cli.Context) error {
 
 	var totalBlocks int
 	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
+		if len(blocks) == 0 {
+			return nil
+		}
+		firstNum := blocks[0].NumberU64()
+		lastNum := blocks[len(blocks)-1].NumberU64()
 		if _, err := chain.InsertChain(blocks); err != nil {
-			fmt.Printf("failed to import batch %d ending at block %d: %v\n", batchNum, blocks[len(blocks)-1].NumberU64(), err)
+			fmt.Printf("failed to import batch %d (blocks %d-%d): %v\n", batchNum, firstNum, lastNum, err)
 			return err
 		}
-		fmt.Printf("Imported batch %d of %d blocks, last block: %d\n", batchNum, len(blocks), blocks[len(blocks)-1].NumberU64())
+		fmt.Printf("Imported batch %d of %d blocks (blocks %d-%d)\n", batchNum, len(blocks), firstNum, lastNum)
 		totalBlocks += len(blocks)
 		return nil
 	})
