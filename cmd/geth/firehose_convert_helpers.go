@@ -19,20 +19,20 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 
 	// Convert header
 	header := &types.Header{
-		ParentHash:  common.Hash(pbBlock.Header.ParentHash),
-		UncleHash:   common.Hash(pbBlock.Header.UncleHash),
-		Coinbase:    common.Address(pbBlock.Header.Coinbase),
-		Root:        common.Hash(pbBlock.Header.StateRoot),
-		TxHash:      common.Hash(pbBlock.Header.TransactionsRoot),
-		ReceiptHash: common.Hash(pbBlock.Header.ReceiptRoot),
+		ParentHash:  common.BytesToHash(pbBlock.Header.ParentHash),
+		UncleHash:   common.BytesToHash(pbBlock.Header.UncleHash),
+		Coinbase:    common.BytesToAddress(pbBlock.Header.Coinbase),
+		Root:        common.BytesToHash(pbBlock.Header.StateRoot),
+		TxHash:      common.BytesToHash(pbBlock.Header.TransactionsRoot),
+		ReceiptHash: common.BytesToHash(pbBlock.Header.ReceiptRoot),
 		Bloom:       types.BytesToBloom(pbBlock.Header.LogsBloom),
 		Difficulty:  pbBlock.Header.Difficulty.Native(),
-		Number:      big.NewInt(int64(pbBlock.Header.Number)),
+		Number:      new(big.Int).SetUint64(pbBlock.Header.Number),
 		GasLimit:    pbBlock.Header.GasLimit,
 		GasUsed:     pbBlock.Header.GasUsed,
 		Time:        uint64(pbBlock.Header.Timestamp.Seconds),
 		Extra:       pbBlock.Header.ExtraData,
-		MixDigest:   common.Hash(pbBlock.Header.MixHash),
+		MixDigest:   common.BytesToHash(pbBlock.Header.MixHash),
 		Nonce:       types.EncodeNonce(pbBlock.Header.Nonce),
 	}
 
@@ -57,7 +57,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 	}
 
 	if pbBlock.Header.RequestsHash != nil {
-		header.ParentBeaconRoot = (*common.Hash)(pbBlock.Header.RequestsHash)
+		header.RequestsHash = (*common.Hash)(pbBlock.Header.RequestsHash)
 	}
 
 	// Convert transactions
@@ -161,7 +161,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 				Bloom:             types.BytesToBloom(pbTx.Receipt.LogsBloom),
 				Logs:              convertFirehoseLogsToGethLogs(pbTx.Receipt.Logs, pbTx, pbBlock),
 
-				TxHash:  common.Hash(pbTx.Hash),
+				TxHash:  common.BytesToHash(pbTx.Hash),
 				GasUsed: pbTx.GasUsed,
 			}
 
@@ -219,12 +219,12 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			continue
 		}
 		uncle := &types.Header{
-			ParentHash:  common.Hash(pbUncle.ParentHash),
-			UncleHash:   common.Hash(pbUncle.UncleHash),
-			Coinbase:    common.Address(pbUncle.Coinbase),
-			Root:        common.Hash(pbUncle.StateRoot),
-			TxHash:      common.Hash(pbUncle.TransactionsRoot),
-			ReceiptHash: common.Hash(pbUncle.ReceiptRoot),
+			ParentHash:  common.BytesToHash(pbUncle.ParentHash),
+			UncleHash:   common.BytesToHash(pbUncle.UncleHash),
+			Coinbase:    common.BytesToAddress(pbUncle.Coinbase),
+			Root:        common.BytesToHash(pbUncle.StateRoot),
+			TxHash:      common.BytesToHash(pbUncle.TransactionsRoot),
+			ReceiptHash: common.BytesToHash(pbUncle.ReceiptRoot),
 			Bloom:       types.BytesToBloom(pbUncle.LogsBloom),
 			Difficulty:  pbUncle.Difficulty.Native(),
 			Number:      big.NewInt(int64(pbUncle.Number)),
@@ -232,7 +232,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			GasUsed:     pbUncle.GasUsed,
 			Time:        uint64(pbUncle.Timestamp.Seconds),
 			Extra:       pbUncle.ExtraData,
-			MixDigest:   common.Hash(pbUncle.MixHash),
+			MixDigest:   common.BytesToHash(pbUncle.MixHash),
 			Nonce:       types.EncodeNonce(pbUncle.Nonce),
 		}
 		if pbUncle.BaseFeePerGas != nil {
