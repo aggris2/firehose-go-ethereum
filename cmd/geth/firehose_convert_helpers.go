@@ -12,7 +12,7 @@ import (
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
-func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error) {
+func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*types.Block, error) {
 	if pbBlock == nil || pbBlock.Header == nil {
 		return nil, fmt.Errorf("invalid block or header")
 	}
@@ -84,7 +84,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			})
 		case 1: // AccessListTx
 			tx = types.NewTx(&types.AccessListTx{
-				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations).ToBig(),
+				ChainID:    chainID,
 				Nonce:      pbTx.Nonce,
 				GasPrice:   pbTx.GasPrice.Native(),
 				Gas:        pbTx.GasLimit,
@@ -98,7 +98,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			})
 		case 2: // DynamicFeeTx
 			tx = types.NewTx(&types.DynamicFeeTx{
-				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations).ToBig(),
+				ChainID:    chainID,
 				Nonce:      pbTx.Nonce,
 				GasTipCap:  pbTx.MaxPriorityFeePerGas.Native(),
 				GasFeeCap:  pbTx.MaxFeePerGas.Native(),
@@ -113,7 +113,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			})
 		case 3: // BlobTx
 			tx = types.NewTx(&types.BlobTx{
-				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations),
+				ChainID:    uint256.MustFromBig(chainID),
 				Nonce:      pbTx.Nonce,
 				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
 				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
@@ -130,7 +130,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block) (*types.Block, error)
 			})
 		case 4: // SetCodeTx
 			tx = types.NewTx(&types.SetCodeTx{
-				ChainID:    extractChainIDFromSetCodeAuth(pbTx.SetCodeAuthorizations),
+				ChainID:    uint256.MustFromBig(chainID),
 				Nonce:      pbTx.Nonce,
 				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
 				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
@@ -351,17 +351,4 @@ func bigIntToUint256(b *big.Int) *uint256.Int {
 		return uint256.NewInt(0)
 	}
 	return uint256.MustFromBig(b)
-}
-
-// Extracts chainID from the first non-nil, non-discarded SetCodeAuthorization
-func extractChainIDFromSetCodeAuth(pbAuths []*pbeth.SetCodeAuthorization) *uint256.Int {
-	for _, auth := range pbAuths {
-		if auth == nil || auth.Discarded {
-			continue
-		}
-		if len(auth.ChainId) > 0 {
-			return uint256.MustFromBig(new(big.Int).SetBytes(auth.ChainId))
-		}
-	}
-	return nil
 }

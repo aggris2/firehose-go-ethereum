@@ -56,6 +56,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/streamingfast/firehose-core/firehose/client"
 	"github.com/urfave/cli/v2"
+	"math/big"
 )
 
 var (
@@ -829,18 +830,24 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 }
 
 func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 1 {
-		return fmt.Errorf("missing required <firehose-endpoint> argument")
+	if ctx.Args().Len() < 2 {
+		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID>")
 	}
 	if !ctx.IsSet("start-block") {
 		return fmt.Errorf("missing required --start-block flag")
 	}
 
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
-	endpoint := ctx.Args().First()
+	endpoint := ctx.Args().Get(0)
+	chainIDStr := ctx.Args().Get(1)
 	batchSize := ctx.Int("batch-size")
 	startBlock := ctx.Int64("start-block")
 	endBlock := ctx.Uint64("end-block")
+
+	chainID := new(big.Int)
+	if _, ok := chainID.SetString(chainIDStr, 10); !ok {
+		return fmt.Errorf("invalid chainID: %s", chainIDStr)
+	}
 
 	// Open Geth stack and chain
 	stack, cfg := makeConfigNode(ctx)
@@ -850,7 +857,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	defer db.Close()
 
 	var totalBlocks int
-	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, func(blocks []*types.Block, batchNum int) error {
+	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, chainID, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -877,6 +884,7 @@ func processFirehoseBlocks(
 	startBlock int64,
 	endBlock uint64,
 	batchSize int,
+	chainID *big.Int,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
@@ -939,7 +947,7 @@ func processFirehoseBlocks(
 					fmt.Printf("failed to unmarshal block: %v\n", err)
 					continue
 				}
-				block, err := convertFirehoseBlockToGethBlock(ethBlock)
+				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID)
 				if err != nil {
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
 					continue
