@@ -68,6 +68,19 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 			continue
 		}
 
+		// Determine To field based on status
+		var toPtr *common.Address
+		if pbTx.Status == 2 || pbTx.Status == 3 {
+			toPtr = nil
+		} else {
+			if len(pbTx.To) != 0 {
+				addr := common.BytesToAddress(pbTx.To)
+				toPtr = &addr
+			} else {
+				toPtr = nil
+			}
+		}
+
 		var tx *types.Transaction
 		switch pbTx.Type {
 		case 0: // LegacyTx
@@ -75,7 +88,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 				Nonce:    pbTx.Nonce,
 				GasPrice: pbTx.GasPrice.Native(),
 				Gas:      pbTx.GasLimit,
-				To:       func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				To:       toPtr,
 				Value:    pbTx.Value.Native(),
 				Data:     pbTx.Input,
 				V:        new(big.Int).SetBytes(pbTx.V),
@@ -103,7 +116,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 				GasTipCap:  pbTx.MaxPriorityFeePerGas.Native(),
 				GasFeeCap:  pbTx.MaxFeePerGas.Native(),
 				Gas:        pbTx.GasLimit,
-				To:         func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				To:         toPtr,
 				Value:      pbTx.Value.Native(),
 				Data:       pbTx.Input,
 				AccessList: convertFirehoseAccessList(pbTx.AccessList),
@@ -113,12 +126,17 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 			})
 		case 3: // BlobTx
 			tx = types.NewTx(&types.BlobTx{
-				ChainID:    uint256.MustFromBig(chainID),
-				Nonce:      pbTx.Nonce,
-				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
-				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
-				Gas:        pbTx.GasLimit,
-				To:         common.BytesToAddress(pbTx.To),
+				ChainID:   uint256.MustFromBig(chainID),
+				Nonce:     pbTx.Nonce,
+				GasTipCap: bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
+				GasFeeCap: bigIntToUint256(pbTx.MaxFeePerGas.Native()),
+				Gas:       pbTx.GasLimit,
+				To: func() common.Address {
+					if pbTx.Status == 0 {
+						return common.Address{}
+					}
+					return common.BytesToAddress(pbTx.To)
+				}(),
 				Value:      bigIntToUint256(pbTx.Value.Native()),
 				Data:       pbTx.Input,
 				AccessList: convertFirehoseAccessList(pbTx.AccessList),
@@ -130,12 +148,17 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 			})
 		case 4: // SetCodeTx
 			tx = types.NewTx(&types.SetCodeTx{
-				ChainID:    uint256.MustFromBig(chainID),
-				Nonce:      pbTx.Nonce,
-				GasTipCap:  bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
-				GasFeeCap:  bigIntToUint256(pbTx.MaxFeePerGas.Native()),
-				Gas:        pbTx.GasLimit,
-				To:         common.BytesToAddress(pbTx.To),
+				ChainID:   uint256.MustFromBig(chainID),
+				Nonce:     pbTx.Nonce,
+				GasTipCap: bigIntToUint256(pbTx.MaxPriorityFeePerGas.Native()),
+				GasFeeCap: bigIntToUint256(pbTx.MaxFeePerGas.Native()),
+				Gas:       pbTx.GasLimit,
+				To: func() common.Address {
+					if pbTx.Status == 0 {
+						return common.Address{}
+					}
+					return common.BytesToAddress(pbTx.To)
+				}(),
 				Value:      bigIntToUint256(pbTx.Value.Native()),
 				Data:       pbTx.Input,
 				AccessList: convertFirehoseAccessList(pbTx.AccessList),
