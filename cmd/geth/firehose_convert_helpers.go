@@ -101,7 +101,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 				Nonce:      pbTx.Nonce,
 				GasPrice:   pbTx.GasPrice.Native(),
 				Gas:        pbTx.GasLimit,
-				To:         func() *common.Address { addr := common.BytesToAddress(pbTx.To); return &addr }(),
+				To:         toPtr,
 				Value:      pbTx.Value.Native(),
 				Data:       pbTx.Input,
 				AccessList: convertFirehoseAccessList(pbTx.AccessList),
@@ -288,7 +288,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		// TODO: Withdrawal
+		// TODO(Withdrawal): Protobuf block does not contain Withdrawal field
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil

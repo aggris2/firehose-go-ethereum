@@ -859,6 +859,9 @@ func importFromFirehose(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("invalid startBlock: %s", startBlockStr)
 	}
+	if startBlock < 0 {
+		return fmt.Errorf("startBlock must be non-negative")
+	}
 
 	// Open Geth stack and chain
 	stack, cfg := makeConfigNode(ctx)
@@ -955,7 +958,7 @@ func processFirehoseBlocks(
 			for sr := range rawCh {
 				ethBlock := &pbeth.Block{}
 				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
-					fmt.Printf("failed to unmarshal block: %v\n", err)
+					fmt.Printf("failed to unmarshal block (seq: %d, block number: %d): %v\n", sr.seq, ethBlock.Number, err)
 					continue
 				}
 				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID)

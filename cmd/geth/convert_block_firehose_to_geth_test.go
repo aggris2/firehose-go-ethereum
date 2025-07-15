@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -129,11 +128,11 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 					if err := os.MkdirAll(filepath.Dir(goldenFile), 0755); err != nil {
 						t.Fatalf("failed to create testdata dir: %v", err)
 					}
-					if err := ioutil.WriteFile(goldenFile, got, 0644); err != nil {
+					if err := os.WriteFile(goldenFile, got, 0644); err != nil {
 						t.Fatalf("failed to write golden file: %v", err)
 					}
 				} else {
-					want, err := ioutil.ReadFile(goldenFile)
+					want, err := os.ReadFile(goldenFile)
 					if err != nil {
 						t.Fatalf("failed to read golden file: %v", err)
 					}
