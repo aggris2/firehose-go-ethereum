@@ -99,7 +99,7 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			block, err := convertFirehoseBlockToGethBlock(tt.pbBlock)
+			block, err := convertFirehoseBlockToGethBlock(tt.pbBlock, big.NewInt(0))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertFirehoseBlockToGethBlock() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -19,9 +19,9 @@
     "withdrawalsRoot": null,
     "blobGasUsed": "0x0",
     "excessBlobGas": "0x0",
-    "parentBeaconBlockRoot": "0x9798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6",
-    "requestsHash": null,
-    "hash": "0x78a54d8882be57804ba9da125ef7414a58a5712f7bd6c4b0d046d0d6a463d482"
+    "parentBeaconBlockRoot": "0xc9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8",
+    "requestsHash": "0x9798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6",
+    "hash": "0x6a7b9393fb611e3bb918845a503f484c612895f6b1982679359a70bf5c166f47"
   },
   "Transactions": [
     {

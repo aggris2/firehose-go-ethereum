@@ -70,7 +70,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 
 		// Contract creation have "To" set to nil
 		var toPtr *common.Address
-		if pbTx.Calls[0].CallType == 5 {
+		if len(pbTx.Calls) > 0 && pbTx.Calls[0].CallType == 5 {
 			toPtr = nil
 		} else {
 			if len(pbTx.To) != 0 {
