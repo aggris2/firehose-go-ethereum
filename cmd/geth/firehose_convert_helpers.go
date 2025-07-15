@@ -70,7 +70,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 
 		// Determine To field based on status
 		var toPtr *common.Address
-		if pbTx.Status == 2 || pbTx.Status == 3 {
+		if pbTx.Calls[0].CallType == 5 {
 			toPtr = nil
 		} else {
 			if len(pbTx.To) != 0 {

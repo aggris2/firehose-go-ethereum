@@ -866,7 +866,7 @@ func importFromFirehose(ctx *cli.Context) error {
 			if len(txs) == 0 {
 				continue
 			}
-			if block.NumberU64() == 176014 {
+			if block.NumberU64() == 368502 {
 				logBlockAndTransactions(i, block, txs)
 			}
 		}
