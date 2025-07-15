@@ -254,6 +254,11 @@ helps reduce storage requirements for nodes that don't need full historical data
 				Usage: "Number of concurrent workers for block conversion (default: 100)",
 				Value: 100,
 			},
+			&cli.IntFlag{
+				Name:  "firehose-buffer-size",
+				Usage: "Buffer size for Firehose block conversion channels (default: 100)",
+				Value: 100,
+			},
 		},
 		Description: `
 Connects to a Firehose gRPC endpoint, streams Ethereum blocks, and imports them directly into the Geth chain database.
@@ -849,6 +854,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	batchSize := ctx.Int("batch-size")
 	endBlock := ctx.Uint64("end-block")
 	workerCount := ctx.Int("worker-count")
+	bufferSize := ctx.Int("firehose-buffer-size")
 
 	chainID := new(big.Int)
 	if _, ok := chainID.SetString(chainIDStr, 10); !ok {
@@ -871,7 +877,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	defer db.Close()
 
 	var totalBlocks int
-	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, chainID, func(blocks []*types.Block, batchNum int) error {
+	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -899,6 +905,7 @@ func processFirehoseBlocks(
 	endBlock uint64,
 	batchSize int,
 	workerCount int,
+	bufferSize int,
 	chainID *big.Int,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
@@ -926,8 +933,8 @@ func processFirehoseBlocks(
 		block *types.Block
 	}
 
-	rawCh := make(chan seqResponse, 100)
-	blockCh := make(chan seqBlock, 100)
+	rawCh := make(chan seqResponse, bufferSize)
+	blockCh := make(chan seqBlock, bufferSize)
 	errCh := make(chan error, 1)
 	doneCh := make(chan struct{})
 
@@ -958,7 +965,7 @@ func processFirehoseBlocks(
 			for sr := range rawCh {
 				ethBlock := &pbeth.Block{}
 				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
-					fmt.Printf("failed to unmarshal block (seq: %d, block number: %d): %v\n", sr.seq, ethBlock.Number, err)
+					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
 				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID)
