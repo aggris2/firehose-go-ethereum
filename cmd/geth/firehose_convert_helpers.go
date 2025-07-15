@@ -279,7 +279,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 		}
 
 		if pbUncle.RequestsHash != nil {
-			uncle.ParentBeaconRoot = (*common.Hash)(pbUncle.RequestsHash)
+			uncle.RequestsHash = (*common.Hash)(pbUncle.RequestsHash)
 		}
 
 		uncles = append(uncles, uncle)
