@@ -68,7 +68,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 			continue
 		}
 
-		// Determine To field based on status
+		// Contract creation have "To" set to nil
 		var toPtr *common.Address
 		if pbTx.Calls[0].CallType == 5 {
 			toPtr = nil
@@ -175,7 +175,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 			txs = append(txs, tx)
 		}
 
-		// Convert receipt if present
+		// Convert receipt
 		if pbTx.Receipt != nil {
 			receipt := &types.Receipt{
 				Type:              uint8(pbTx.Type),

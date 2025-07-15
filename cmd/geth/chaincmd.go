@@ -237,25 +237,33 @@ helps reduce storage requirements for nodes that don't need full historical data
 		Action:    importFromFirehose,
 		Name:      "import-from-firehose",
 		Usage:     "Import blocks from a Firehose gRPC endpoint directly into the chain database",
-		ArgsUsage: "<firehose-endpoint>",
+		ArgsUsage: "<firehose-endpoint> <chainID> <startBlock>",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "batch-size",
 				Usage: "Number of blocks to import per batch",
 				Value: 1000,
 			},
-			&cli.Int64Flag{
-				Name:  "start-block",
-				Usage: "Start block number (inclusive)",
-			},
 			&cli.Uint64Flag{
 				Name:  "end-block",
 				Usage: "End block number (inclusive, default: unlimited)",
 				Value: 0,
 			},
+			&cli.IntFlag{
+				Name:  "worker-count",
+				Usage: "Number of concurrent workers for block conversion (default: 100)",
+				Value: 100,
+			},
 		},
 		Description: `
 Connects to a Firehose gRPC endpoint, streams Ethereum blocks, and imports them directly into the Geth chain database.
+
+Required arguments:
+  <firehose-endpoint>   The Firehose gRPC endpoint to connect to
+  <chainID>            The chain ID to use for block conversion
+  <startBlock>         The start block number (inclusive)
+
+The API token for the Firehose endpoint can be provided via the FIREHOSE_API_TOKEN environment variable.
 `,
 	}
 )
@@ -830,23 +838,26 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 }
 
 func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 2 {
-		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID>")
-	}
-	if !ctx.IsSet("start-block") {
-		return fmt.Errorf("missing required --start-block flag")
+	if ctx.Args().Len() < 3 {
+		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <startBlock>")
 	}
 
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
 	endpoint := ctx.Args().Get(0)
 	chainIDStr := ctx.Args().Get(1)
+	startBlockStr := ctx.Args().Get(2)
 	batchSize := ctx.Int("batch-size")
-	startBlock := ctx.Int64("start-block")
 	endBlock := ctx.Uint64("end-block")
+	workerCount := ctx.Int("worker-count")
 
 	chainID := new(big.Int)
 	if _, ok := chainID.SetString(chainIDStr, 10); !ok {
 		return fmt.Errorf("invalid chainID: %s", chainIDStr)
+	}
+
+	startBlock, err := strconv.ParseInt(startBlockStr, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid startBlock: %s", startBlockStr)
 	}
 
 	// Open Geth stack and chain
@@ -857,7 +868,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	defer db.Close()
 
 	var totalBlocks int
-	err := processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, chainID, func(blocks []*types.Block, batchNum int) error {
+	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, chainID, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -884,6 +895,7 @@ func processFirehoseBlocks(
 	startBlock int64,
 	endBlock uint64,
 	batchSize int,
+	workerCount int,
 	chainID *big.Int,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
@@ -935,7 +947,6 @@ func processFirehoseBlocks(
 	}()
 
 	// Stage 2: Converter pool
-	workerCount := 100
 	var wg sync.WaitGroup
 	wg.Add(workerCount)
 	for i := 0; i < workerCount; i++ {
