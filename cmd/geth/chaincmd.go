@@ -237,7 +237,7 @@ helps reduce storage requirements for nodes that don't need full historical data
 		Action:    importFromFirehose,
 		Name:      "import-from-firehose",
 		Usage:     "Import blocks from a Firehose gRPC endpoint directly into the chain database",
-		ArgsUsage: "<firehose-endpoint> <chainID> <startBlock>",
+		ArgsUsage: "<firehose-endpoint> <chainID> <startBlock> <jwt>",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "batch-size",
@@ -267,6 +267,7 @@ Required arguments:
   <firehose-endpoint>   The Firehose gRPC endpoint to connect to
   <chainID>            The chain ID to use for block conversion
   <startBlock>         The start block number (inclusive)
+  <jwt>                The JWT token (required, not used yet)
 
 The API token for the Firehose endpoint can be provided via the FIREHOSE_API_TOKEN environment variable.
 `,
@@ -843,14 +844,15 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 }
 
 func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 3 {
-		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <startBlock>")
+	if ctx.Args().Len() < 4 {
+		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <startBlock> <jwt>")
 	}
 
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
 	endpoint := ctx.Args().Get(0)
 	chainIDStr := ctx.Args().Get(1)
 	startBlockStr := ctx.Args().Get(2)
+	jwt := ctx.Args().Get(3)
 	batchSize := ctx.Int("batch-size")
 	endBlock := ctx.Uint64("end-block")
 	workerCount := ctx.Int("worker-count")
@@ -877,7 +879,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	defer db.Close()
 
 	var totalBlocks int
-	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, func(blocks []*types.Block, batchNum int) error {
+	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, jwt, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -916,6 +918,7 @@ func processFirehoseBlocks(
 	workerCount int,
 	bufferSize int,
 	chainID *big.Int,
+	jwt string,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
@@ -984,7 +987,7 @@ func processFirehoseBlocks(
 					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
-				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID)
+				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, jwt)
 				if err != nil {
 					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)

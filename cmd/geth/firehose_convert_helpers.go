@@ -1,19 +1,25 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
+	"io/ioutil"
 	"math/big"
+	"net/http"
+	"strconv"
 	"sync"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
-func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*types.Block, error) {
+func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt string) (*types.Block, error) {
 	if pbBlock == nil || pbBlock.Header == nil {
 		return nil, fmt.Errorf("invalid block or header")
 	}
@@ -291,41 +297,100 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		Withdrawals:  createWithdrawals(pbBlock),
+		Withdrawals:  createWithdrawals(pbBlock, jwt),
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
 }
 
 var withdrawalIndex uint64 = 0
-var withdrawalValidator uint64 = 45000
 
 // For ordered withdrawal assignment
 var withdrawalOrderMu sync.Mutex
 var withdrawalOrderCond = sync.NewCond(&withdrawalOrderMu)
 var currentWithdrawalSeq uint64 = 0
 
-func createWithdrawals(block *pbeth.Block) []*types.Withdrawal {
+// Helper to fetch validator indices for withdrawals from Alchemy
+func fetchValidatorIndices(jwt string, blockNumber uint64) (map[uint64]uint64, error) {
+	url := fmt.Sprintf("https://eth-holesky.g.alchemy.com/v2/%s", jwt)
+	blockHex := fmt.Sprintf("0x%x", blockNumber)
+	payload := fmt.Sprintf(`{
+		"id": 1,
+		"jsonrpc": "2.0",
+		"method": "eth_getBlockByNumber",
+		"params": ["%s", false]
+	}`, blockHex)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the response
+	var result struct {
+		Result struct {
+			Withdrawals []struct {
+				Index          string `json:"index"`
+				ValidatorIndex string `json:"validatorIndex"`
+			} `json:"withdrawals"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	// Build the map
+	indexToValidator := make(map[uint64]uint64)
+	for _, w := range result.Result.Withdrawals {
+		idx, err1 := strconv.ParseUint(w.Index[2:], 16, 64)
+		valIdx, err2 := strconv.ParseUint(w.ValidatorIndex[2:], 16, 64)
+		if err1 == nil && err2 == nil {
+			indexToValidator[idx] = valIdx
+		}
+	}
+	return indexToValidator, nil
+}
+
+func createWithdrawals(block *pbeth.Block, jwt string) []*types.Withdrawal {
+	if block.Header.WithdrawalsRoot == nil {
+		return nil
+	}
+
 	withdrawals := []*types.Withdrawal{}
+	validatorMap, err := fetchValidatorIndices(jwt, block.Number)
+	if err != nil {
+		log.Warn("Could not fetch validator indices", "err", err)
+	}
 	for _, bc := range block.BalanceChanges {
 		if bc.Reason == pbeth.BalanceChange_REASON_WITHDRAWAL {
+			idx := withdrawalIndex
+			validator := uint64(0)
+			if v, ok := validatorMap[idx]; ok {
+				validator = v
+			}
 			withdrawal := &types.Withdrawal{
-				Index:     withdrawalIndex,
-				Validator: withdrawalValidator,
+				Index:     idx,
+				Validator: validator,
 				Address:   common.BytesToAddress(bc.Address),
 				Amount:    (bc.NewValue.Native().Uint64() - bc.OldValue.Native().Uint64()) / 1000000000,
 			}
 			withdrawals = append(withdrawals, withdrawal)
 			withdrawalIndex++
-			withdrawalValidator++
 		}
 	}
-
-	if block.Header.WithdrawalsRoot != nil {
-		return withdrawals
-	} else {
-		return nil
-	}
+	return withdrawals
 }
 
 // Helper to convert Firehose AccessList to geth AccessList
