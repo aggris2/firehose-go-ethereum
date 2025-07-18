@@ -9,6 +9,7 @@ import (
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"math/big"
+	"sync"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -33,7 +34,9 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 		Time:        uint64(pbBlock.Header.Timestamp.Seconds),
 		Extra:       pbBlock.Header.ExtraData,
 		MixDigest:   common.BytesToHash(pbBlock.Header.MixHash),
-		Nonce:       types.EncodeNonce(pbBlock.Header.Nonce),
+		Nonce: func() types.BlockNonce {
+			return types.EncodeNonce(pbBlock.Header.Nonce)
+		}(),
 	}
 
 	if pbBlock.Header.BaseFeePerGas != nil {
@@ -288,10 +291,41 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int) (*t
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		// TODO(Withdrawal): Protobuf block does not contain Withdrawal field
+		Withdrawals:  createWithdrawals(pbBlock),
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
+}
+
+var withdrawalIndex uint64 = 0
+var withdrawalValidator uint64 = 45000
+
+// For ordered withdrawal assignment
+var withdrawalOrderMu sync.Mutex
+var withdrawalOrderCond = sync.NewCond(&withdrawalOrderMu)
+var currentWithdrawalSeq uint64 = 0
+
+func createWithdrawals(block *pbeth.Block) []*types.Withdrawal {
+	withdrawals := []*types.Withdrawal{}
+	for _, bc := range block.BalanceChanges {
+		if bc.Reason == pbeth.BalanceChange_REASON_WITHDRAWAL {
+			withdrawal := &types.Withdrawal{
+				Index:     withdrawalIndex,
+				Validator: withdrawalValidator,
+				Address:   common.BytesToAddress(bc.Address),
+				Amount:    (bc.NewValue.Native().Uint64() - bc.OldValue.Native().Uint64()) / 1000000000,
+			}
+			withdrawals = append(withdrawals, withdrawal)
+			withdrawalIndex++
+			withdrawalValidator++
+		}
+	}
+
+	if block.Header.WithdrawalsRoot != nil {
+		return withdrawals
+	} else {
+		return nil
+	}
 }
 
 // Helper to convert Firehose AccessList to geth AccessList

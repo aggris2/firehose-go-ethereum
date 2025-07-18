@@ -881,6 +881,15 @@ func importFromFirehose(ctx *cli.Context) error {
 		if len(blocks) == 0 {
 			return nil
 		}
+		for i, block := range blocks {
+			txs := block.Transactions()
+			if len(txs) == 0 {
+				continue
+			}
+			if block.NumberU64() == 6700 || block.NumberU64() == 6943 {
+				logBlockAndTransactions(i, block, txs)
+			}
+		}
 		firstNum := blocks[0].NumberU64()
 		lastNum := blocks[len(blocks)-1].NumberU64()
 		if _, err := chain.InsertChain(blocks); err != nil {
@@ -963,17 +972,28 @@ func processFirehoseBlocks(
 		go func() {
 			defer wg.Done()
 			for sr := range rawCh {
+				// Enforce order for withdrawal assignment
+				withdrawalOrderMu.Lock()
+				for sr.seq != currentWithdrawalSeq {
+					withdrawalOrderCond.Wait()
+				}
+				// Now it's this block's turn
 				ethBlock := &pbeth.Block{}
 				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
+					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
 				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID)
 				if err != nil {
+					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
 					continue
 				}
 				blockCh <- seqBlock{seq: sr.seq, block: block}
+				currentWithdrawalSeq++
+				withdrawalOrderCond.Broadcast()
+				withdrawalOrderMu.Unlock()
 			}
 		}()
 	}
@@ -1029,5 +1049,56 @@ func processFirehoseBlocks(
 		return err
 	case <-doneCh:
 		return nil
+	}
+}
+
+// Helper function for detailed block and transaction logging
+func logBlockAndTransactions(i int, block *types.Block, txs types.Transactions) {
+	h := block.Header()
+
+	log.Info("Batch block", "i", i, "number", block.NumberU64(), "hash", block.Hash(),
+		"ParentHash", h.ParentHash,
+		"UncleHash", h.UncleHash,
+		"Coinbase", h.Coinbase,
+		"Root", h.Root,
+		"TxHash", h.TxHash,
+		"ReceiptHash", h.ReceiptHash,
+		"Bloom", h.Bloom,
+		"Difficulty", h.Difficulty,
+		"Number", h.Number,
+		"GasLimit", h.GasLimit,
+		"GasUsed", h.GasUsed,
+		"Time", h.Time,
+		"Extra", h.Extra,
+		"MixDigest", h.MixDigest,
+		"Nonce", h.Nonce,
+		"BaseFee", h.BaseFee,
+		"WithdrawalsHash", h.WithdrawalsHash,
+		"BlobGasUsed", h.BlobGasUsed,
+		"ExcessBlobGas", h.ExcessBlobGas,
+		"ParentBeaconRoot", h.ParentBeaconRoot,
+		"RequestsHash", h.RequestsHash,
+	)
+	for j, tx := range txs {
+		v, r, s := tx.RawSignatureValues()
+		log.Info("Block transaction",
+			"block_i", i,
+			"tx_j", j,
+			"hash", tx.Hash(),
+			"type", tx.Type(),
+			"nonce", tx.Nonce(),
+			"to", tx.To(),
+			"gas", tx.Gas(),
+			"gasPrice", tx.GasPrice(),
+			"gasTipCap", tx.GasTipCap(),
+			"gasFeeCap", tx.GasFeeCap(),
+			"value", tx.Value(),
+			"input", hexutil.Encode(tx.Data()),
+			"accessList", tx.AccessList(),
+			"v", v,
+			"r", r,
+			"s", s,
+			"chainId", tx.ChainId(),
+		)
 	}
 }
