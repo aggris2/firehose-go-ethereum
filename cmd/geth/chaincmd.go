@@ -267,7 +267,7 @@ Required arguments:
   <firehose-endpoint>   The Firehose gRPC endpoint to connect to
   <chainID>            The chain ID to use for block conversion
   <startBlock>         The start block number (inclusive)
-  <jwt>                The JWT token (required, not used yet)
+  <jwt>                The JWT token (for Alchemy RPC)
 
 The API token for the Firehose endpoint can be provided via the FIREHOSE_API_TOKEN environment variable.
 `,
@@ -883,12 +883,6 @@ func importFromFirehose(ctx *cli.Context) error {
 		if len(blocks) == 0 {
 			return nil
 		}
-		for i, block := range blocks {
-			txs := block.Transactions()
-			if block.NumberU64() == 51397 || block.NumberU64() == 9493 {
-				logBlockAndTransactions(i, block, txs)
-			}
-		}
 		firstNum := blocks[0].NumberU64()
 		lastNum := blocks[len(blocks)-1].NumberU64()
 		if _, err := chain.InsertChain(blocks); err != nil {
@@ -1049,56 +1043,5 @@ func processFirehoseBlocks(
 		return err
 	case <-doneCh:
 		return nil
-	}
-}
-
-// Helper function for detailed block and transaction logging
-func logBlockAndTransactions(i int, block *types.Block, txs types.Transactions) {
-	h := block.Header()
-
-	log.Info("Batch block", "i", i, "number", block.NumberU64(), "hash", block.Hash(),
-		"ParentHash", h.ParentHash,
-		"UncleHash", h.UncleHash,
-		"Coinbase", h.Coinbase,
-		"Root", h.Root,
-		"TxHash", h.TxHash,
-		"ReceiptHash", h.ReceiptHash,
-		"Bloom", h.Bloom,
-		"Difficulty", h.Difficulty,
-		"Number", h.Number,
-		"GasLimit", h.GasLimit,
-		"GasUsed", h.GasUsed,
-		"Time", h.Time,
-		"Extra", h.Extra,
-		"MixDigest", h.MixDigest,
-		"Nonce", h.Nonce,
-		"BaseFee", h.BaseFee,
-		"WithdrawalsHash", h.WithdrawalsHash,
-		"BlobGasUsed", h.BlobGasUsed,
-		"ExcessBlobGas", h.ExcessBlobGas,
-		"ParentBeaconRoot", h.ParentBeaconRoot,
-		"RequestsHash", h.RequestsHash,
-	)
-	for j, tx := range txs {
-		v, r, s := tx.RawSignatureValues()
-		log.Info("Block transaction",
-			"block_i", i,
-			"tx_j", j,
-			"hash", tx.Hash(),
-			"type", tx.Type(),
-			"nonce", tx.Nonce(),
-			"to", tx.To(),
-			"gas", tx.Gas(),
-			"gasPrice", tx.GasPrice(),
-			"gasTipCap", tx.GasTipCap(),
-			"gasFeeCap", tx.GasFeeCap(),
-			"value", tx.Value(),
-			"input", hexutil.Encode(tx.Data()),
-			"accessList", tx.AccessList(),
-			"v", v,
-			"r", r,
-			"s", s,
-			"chainId", tx.ChainId(),
-		)
 	}
 }

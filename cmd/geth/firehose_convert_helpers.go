@@ -303,6 +303,88 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
 }
 
+// Helper to convert Firehose AccessList to geth AccessList
+func convertFirehoseAccessList(pbList []*pbeth.AccessTuple) types.AccessList {
+	if len(pbList) == 0 {
+		return nil
+	}
+	alist := make(types.AccessList, len(pbList))
+	for i, tuple := range pbList {
+		alist[i] = types.AccessTuple{
+			Address:     common.BytesToAddress(tuple.Address),
+			StorageKeys: convertBytesToHashes(tuple.StorageKeys),
+		}
+	}
+	return alist
+}
+
+// Helper to convert Firehose SetCodeAuthorization to geth SetCodeAuthorization
+func convertFirehoseSetCodeAuthorizations(pbAuths []*pbeth.SetCodeAuthorization) []types.SetCodeAuthorization {
+	if len(pbAuths) == 0 {
+		return nil
+	}
+	auths := make([]types.SetCodeAuthorization, len(pbAuths))
+	for i, pb := range pbAuths {
+		auths[i] = types.SetCodeAuthorization{
+			ChainID: *uint256.MustFromBig(new(big.Int).SetBytes(pb.ChainId)),
+			Address: common.BytesToAddress(pb.Address),
+			Nonce:   pb.Nonce,
+			V:       uint8(pb.V),
+			R:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.R)),
+			S:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.S)),
+		}
+	}
+	return auths
+}
+
+// Helper to convert Firehose logs to geth logs
+func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionTrace, pbBlock *pbeth.Block) []*types.Log {
+	logs := make([]*types.Log, 0, len(pbLogs))
+	for _, pbLog := range pbLogs {
+		if pbLog == nil {
+			continue
+		}
+		log := &types.Log{
+			Address:        common.BytesToAddress(pbLog.Address),
+			Topics:         convertBytesToHashes(pbLog.Topics),
+			Data:           pbLog.Data,
+			BlockNumber:    uint64(pbLog.BlockIndex),
+			TxHash:         common.BytesToHash(pbTx.Hash),
+			TxIndex:        uint(pbTx.Index),
+			BlockHash:      common.BytesToHash(pbBlock.Header.Hash),
+			BlockTimestamp: uint64(pbBlock.Header.Timestamp.Seconds),
+			Index:          uint(pbLog.Index),
+			Removed:        false,
+		}
+
+		if pbTx.Status == 3 { // Status Reverted
+			log.Removed = true
+		}
+		logs = append(logs, log)
+	}
+	return logs
+}
+
+// Generic helper to convert [][]byte to []common.Hash
+func convertBytesToHashes(pbBytes [][]byte) []common.Hash {
+	if len(pbBytes) == 0 {
+		return nil
+	}
+	hashes := make([]common.Hash, len(pbBytes))
+	for i, b := range pbBytes {
+		hashes[i] = common.BytesToHash(b)
+	}
+	return hashes
+}
+
+// Helper to convert big.Int to uint256.Int
+func bigIntToUint256(b *big.Int) *uint256.Int {
+	if b == nil {
+		return uint256.NewInt(0)
+	}
+	return uint256.MustFromBig(b)
+}
+
 var withdrawalIndex uint64 = 0
 
 // For ordered withdrawal assignment
@@ -407,86 +489,4 @@ func createWithdrawals(block *pbeth.Block, jwt string, endpoint string) []*types
 		}
 	}
 	return withdrawals
-}
-
-// Helper to convert Firehose AccessList to geth AccessList
-func convertFirehoseAccessList(pbList []*pbeth.AccessTuple) types.AccessList {
-	if len(pbList) == 0 {
-		return nil
-	}
-	alist := make(types.AccessList, len(pbList))
-	for i, tuple := range pbList {
-		alist[i] = types.AccessTuple{
-			Address:     common.BytesToAddress(tuple.Address),
-			StorageKeys: convertBytesToHashes(tuple.StorageKeys),
-		}
-	}
-	return alist
-}
-
-// Helper to convert Firehose SetCodeAuthorization to geth SetCodeAuthorization
-func convertFirehoseSetCodeAuthorizations(pbAuths []*pbeth.SetCodeAuthorization) []types.SetCodeAuthorization {
-	if len(pbAuths) == 0 {
-		return nil
-	}
-	auths := make([]types.SetCodeAuthorization, len(pbAuths))
-	for i, pb := range pbAuths {
-		auths[i] = types.SetCodeAuthorization{
-			ChainID: *uint256.MustFromBig(new(big.Int).SetBytes(pb.ChainId)),
-			Address: common.BytesToAddress(pb.Address),
-			Nonce:   pb.Nonce,
-			V:       uint8(pb.V),
-			R:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.R)),
-			S:       *uint256.MustFromBig(new(big.Int).SetBytes(pb.S)),
-		}
-	}
-	return auths
-}
-
-// Helper to convert Firehose logs to geth logs
-func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionTrace, pbBlock *pbeth.Block) []*types.Log {
-	logs := make([]*types.Log, 0, len(pbLogs))
-	for _, pbLog := range pbLogs {
-		if pbLog == nil {
-			continue
-		}
-		log := &types.Log{
-			Address:        common.BytesToAddress(pbLog.Address),
-			Topics:         convertBytesToHashes(pbLog.Topics),
-			Data:           pbLog.Data,
-			BlockNumber:    uint64(pbLog.BlockIndex),
-			TxHash:         common.BytesToHash(pbTx.Hash),
-			TxIndex:        uint(pbTx.Index),
-			BlockHash:      common.BytesToHash(pbBlock.Header.Hash),
-			BlockTimestamp: uint64(pbBlock.Header.Timestamp.Seconds),
-			Index:          uint(pbLog.Index),
-			Removed:        false,
-		}
-
-		if pbTx.Status == 3 { // Status Reverted
-			log.Removed = true
-		}
-		logs = append(logs, log)
-	}
-	return logs
-}
-
-// Generic helper to convert [][]byte to []common.Hash
-func convertBytesToHashes(pbBytes [][]byte) []common.Hash {
-	if len(pbBytes) == 0 {
-		return nil
-	}
-	hashes := make([]common.Hash, len(pbBytes))
-	for i, b := range pbBytes {
-		hashes[i] = common.BytesToHash(b)
-	}
-	return hashes
-}
-
-// Helper to convert big.Int to uint256.Int
-func bigIntToUint256(b *big.Int) *uint256.Int {
-	if b == nil {
-		return uint256.NewInt(0)
-	}
-	return uint256.MustFromBig(b)
 }
