@@ -402,15 +402,6 @@ func createWithdrawals(block *pbeth.Block, jwt string, endpoint string) []*types
 				Address:   common.BytesToAddress(bc.Address),
 				Amount:    gwei.Uint64(),
 			}
-			if block.Number == 9493 || block.Number == 51397 {
-				log.Info("WITHDRAWAL",
-					"index", idx,
-					"validator", validator,
-					"address", withdrawal.Address,
-					"amount", withdrawal.Amount,
-					"New Value", bc.NewValue.Native().Uint64(),
-					"Old Value", bc.OldValue.Native().Uint64())
-			}
 			withdrawals = append(withdrawals, withdrawal)
 			withdrawalIndex++
 		}
