@@ -885,10 +885,7 @@ func importFromFirehose(ctx *cli.Context) error {
 		}
 		for i, block := range blocks {
 			txs := block.Transactions()
-			if len(txs) == 0 {
-				continue
-			}
-			if block.NumberU64() == 6700 || block.NumberU64() == 6943 {
+			if block.NumberU64() == 51397 || block.NumberU64() == 9493 {
 				logBlockAndTransactions(i, block, txs)
 			}
 		}
@@ -987,7 +984,7 @@ func processFirehoseBlocks(
 					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
-				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, jwt)
+				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, jwt, endpoint)
 				if err != nil {
 					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)

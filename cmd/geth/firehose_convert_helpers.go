@@ -19,7 +19,7 @@ import (
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
-func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt string) (*types.Block, error) {
+func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt string, endpoint string) (*types.Block, error) {
 	if pbBlock == nil || pbBlock.Header == nil {
 		return nil, fmt.Errorf("invalid block or header")
 	}
@@ -297,7 +297,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		Withdrawals:  createWithdrawals(pbBlock, jwt),
+		Withdrawals:  createWithdrawals(pbBlock, jwt, endpoint),
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
@@ -311,8 +311,15 @@ var withdrawalOrderCond = sync.NewCond(&withdrawalOrderMu)
 var currentWithdrawalSeq uint64 = 0
 
 // Helper to fetch validator indices for withdrawals from Alchemy
-func fetchValidatorIndices(jwt string, blockNumber uint64) (map[uint64]uint64, error) {
-	url := fmt.Sprintf("https://eth-holesky.g.alchemy.com/v2/%s", jwt)
+func fetchValidatorIndices(jwt string, blockNumber uint64, endpoint string) (map[uint64]uint64, error) {
+	var url string
+	if endpoint == "holesky.eth.streamingfast.io:443" {
+		url = fmt.Sprintf("https://eth-holesky.g.alchemy.com/v2/%s", jwt)
+	} else if endpoint == "hoodi.firehose.pinax.network:443" {
+		url = fmt.Sprintf("https://eth-hoodi.g.alchemy.com/v2/%s", jwt)
+	} else {
+		return nil, fmt.Errorf("unsupported endpoint: %s", endpoint)
+	}
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
 	payload := fmt.Sprintf(`{
 		"id": 1,
@@ -336,6 +343,11 @@ func fetchValidatorIndices(jwt string, blockNumber uint64) (map[uint64]uint64, e
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		log.Warn("Non-200 response from validator index fetch", "status", resp.StatusCode, "body", string(body))
+		return nil, fmt.Errorf("non-200 response: %d", resp.StatusCode)
 	}
 
 	// Parse the response
@@ -363,13 +375,13 @@ func fetchValidatorIndices(jwt string, blockNumber uint64) (map[uint64]uint64, e
 	return indexToValidator, nil
 }
 
-func createWithdrawals(block *pbeth.Block, jwt string) []*types.Withdrawal {
+func createWithdrawals(block *pbeth.Block, jwt string, endpoint string) []*types.Withdrawal {
 	if block.Header.WithdrawalsRoot == nil {
 		return nil
 	}
 
 	withdrawals := []*types.Withdrawal{}
-	validatorMap, err := fetchValidatorIndices(jwt, block.Number)
+	validatorMap, err := fetchValidatorIndices(jwt, block.Number, endpoint)
 	if err != nil {
 		log.Warn("Could not fetch validator indices", "err", err)
 	}
@@ -380,11 +392,24 @@ func createWithdrawals(block *pbeth.Block, jwt string) []*types.Withdrawal {
 			if v, ok := validatorMap[idx]; ok {
 				validator = v
 			}
+
+			amount := new(big.Int).Sub(bc.NewValue.Native(), bc.OldValue.Native())
+			gwei := new(big.Int).Div(amount, big.NewInt(1_000_000_000))
+
 			withdrawal := &types.Withdrawal{
 				Index:     idx,
 				Validator: validator,
 				Address:   common.BytesToAddress(bc.Address),
-				Amount:    (bc.NewValue.Native().Uint64() - bc.OldValue.Native().Uint64()) / 1000000000,
+				Amount:    gwei.Uint64(),
+			}
+			if block.Number == 9493 || block.Number == 51397 {
+				log.Info("WITHDRAWAL",
+					"index", idx,
+					"validator", validator,
+					"address", withdrawal.Address,
+					"amount", withdrawal.Amount,
+					"New Value", bc.NewValue.Native().Uint64(),
+					"Old Value", bc.OldValue.Native().Uint64())
 			}
 			withdrawals = append(withdrawals, withdrawal)
 			withdrawalIndex++
