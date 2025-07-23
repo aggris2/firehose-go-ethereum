@@ -966,28 +966,18 @@ func processFirehoseBlocks(
 		go func() {
 			defer wg.Done()
 			for sr := range rawCh {
-				// Enforce order for withdrawal assignment
-				withdrawalOrderMu.Lock()
-				for sr.seq != currentWithdrawalSeq {
-					withdrawalOrderCond.Wait()
-				}
 				// Now it's this block's turn
 				ethBlock := &pbeth.Block{}
 				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
-					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
 				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, externalRpc, endpoint)
 				if err != nil {
-					withdrawalOrderMu.Unlock()
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
 					continue
 				}
 				blockCh <- seqBlock{seq: sr.seq, block: block}
-				currentWithdrawalSeq++
-				withdrawalOrderCond.Broadcast()
-				withdrawalOrderMu.Unlock()
 			}
 		}()
 	}

@@ -15,7 +15,6 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
-	"sync"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -297,7 +296,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, ext
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		Withdrawals:  createWithdrawals(pbBlock, externalRpc, endpoint),
+		Withdrawals:  createWithdrawals(pbBlock, externalRpc),
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
@@ -385,15 +384,8 @@ func bigIntToUint256(b *big.Int) *uint256.Int {
 	return uint256.MustFromBig(b)
 }
 
-var withdrawalIndex uint64 = 0
-
-// For ordered withdrawal assignment
-var withdrawalOrderMu sync.Mutex
-var withdrawalOrderCond = sync.NewCond(&withdrawalOrderMu)
-var currentWithdrawalSeq uint64 = 0
-
 // Helper to fetch validator indices for withdrawals from Alchemy
-func fetchValidatorIndices(externalRpc string, blockNumber uint64) (map[uint64]uint64, error) {
+func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []uint64, error) {
 	var url string
 	url = fmt.Sprintf(externalRpc)
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
@@ -406,24 +398,24 @@ func fetchValidatorIndices(externalRpc string, blockNumber uint64) (map[uint64]u
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(payload)))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if resp.StatusCode != 200 {
 		log.Warn("Non-200 response from validator index fetch", "status", resp.StatusCode, "body", string(body))
-		return nil, fmt.Errorf("non-200 response: %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("non-200 response: %d", resp.StatusCode)
 	}
 
 	// Parse the response
@@ -436,50 +428,51 @@ func fetchValidatorIndices(externalRpc string, blockNumber uint64) (map[uint64]u
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Build the map
-	indexToValidator := make(map[uint64]uint64)
+	var indices []uint64
+	var validatorIndices []uint64
+
+	// Retrive data
 	for _, w := range result.Result.Withdrawals {
 		idx, err1 := strconv.ParseUint(w.Index[2:], 16, 64)
 		valIdx, err2 := strconv.ParseUint(w.ValidatorIndex[2:], 16, 64)
 		if err1 == nil && err2 == nil {
-			indexToValidator[idx] = valIdx
+			indices = append(indices, idx)
+			validatorIndices = append(validatorIndices, valIdx)
 		}
 	}
-	return indexToValidator, nil
+	return indices, validatorIndices, nil
 }
 
-func createWithdrawals(block *pbeth.Block, externalRpc string, endpoint string) []*types.Withdrawal {
+func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdrawal {
 	if block.Header.WithdrawalsRoot == nil {
 		return nil
 	}
 
 	withdrawals := []*types.Withdrawal{}
-	validatorMap, err := fetchValidatorIndices(externalRpc, block.Number)
+	indices, validatorIndices, err := fetchValidatorIndices(externalRpc, block.Number)
 	if err != nil {
 		log.Warn("Could not fetch validator indices", "err", err)
+		return withdrawals
 	}
+
+	withdrawalPos := 0
+
 	for _, bc := range block.BalanceChanges {
 		if bc.Reason == pbeth.BalanceChange_REASON_WITHDRAWAL {
-			idx := withdrawalIndex
-			validator := uint64(0)
-			if v, ok := validatorMap[idx]; ok {
-				validator = v
-			}
-
 			amount := new(big.Int).Sub(bc.NewValue.Native(), bc.OldValue.Native())
 			gwei := new(big.Int).Div(amount, big.NewInt(1_000_000_000))
 
 			withdrawal := &types.Withdrawal{
-				Index:     idx,
-				Validator: validator,
+				Index:     indices[withdrawalPos],
+				Validator: validatorIndices[withdrawalPos],
 				Address:   common.BytesToAddress(bc.Address),
 				Amount:    gwei.Uint64(),
 			}
 			withdrawals = append(withdrawals, withdrawal)
-			withdrawalIndex++
+			withdrawalPos++
 		}
 	}
 	return withdrawals
