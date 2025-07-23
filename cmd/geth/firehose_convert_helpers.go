@@ -19,7 +19,7 @@ import (
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
-func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt string, endpoint string) (*types.Block, error) {
+func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, externalRpc string, endpoint string) (*types.Block, error) {
 	if pbBlock == nil || pbBlock.Header == nil {
 		return nil, fmt.Errorf("invalid block or header")
 	}
@@ -297,7 +297,7 @@ func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, jwt
 	body := &types.Body{
 		Transactions: txs,
 		Uncles:       uncles,
-		Withdrawals:  createWithdrawals(pbBlock, jwt, endpoint),
+		Withdrawals:  createWithdrawals(pbBlock, externalRpc, endpoint),
 	}
 
 	return types.NewBlock(header, body, receipts, trie.NewStackTrie(nil)), nil
@@ -393,15 +393,9 @@ var withdrawalOrderCond = sync.NewCond(&withdrawalOrderMu)
 var currentWithdrawalSeq uint64 = 0
 
 // Helper to fetch validator indices for withdrawals from Alchemy
-func fetchValidatorIndices(jwt string, blockNumber uint64, endpoint string) (map[uint64]uint64, error) {
+func fetchValidatorIndices(externalRpc string, blockNumber uint64) (map[uint64]uint64, error) {
 	var url string
-	if endpoint == "holesky.eth.streamingfast.io:443" {
-		url = fmt.Sprintf("https://eth-holesky.g.alchemy.com/v2/%s", jwt)
-	} else if endpoint == "hoodi.firehose.pinax.network:443" {
-		url = fmt.Sprintf("https://eth-hoodi.g.alchemy.com/v2/%s", jwt)
-	} else {
-		return nil, fmt.Errorf("unsupported endpoint: %s", endpoint)
-	}
+	url = fmt.Sprintf(externalRpc)
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
 	payload := fmt.Sprintf(`{
 		"id": 1,
@@ -457,13 +451,13 @@ func fetchValidatorIndices(jwt string, blockNumber uint64, endpoint string) (map
 	return indexToValidator, nil
 }
 
-func createWithdrawals(block *pbeth.Block, jwt string, endpoint string) []*types.Withdrawal {
+func createWithdrawals(block *pbeth.Block, externalRpc string, endpoint string) []*types.Withdrawal {
 	if block.Header.WithdrawalsRoot == nil {
 		return nil
 	}
 
 	withdrawals := []*types.Withdrawal{}
-	validatorMap, err := fetchValidatorIndices(jwt, block.Number, endpoint)
+	validatorMap, err := fetchValidatorIndices(externalRpc, block.Number)
 	if err != nil {
 		log.Warn("Could not fetch validator indices", "err", err)
 	}
