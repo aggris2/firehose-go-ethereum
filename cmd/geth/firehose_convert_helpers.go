@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
@@ -11,10 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
+	"golang.org/x/time/rate"
 	"io/ioutil"
 	"math/big"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -384,8 +387,14 @@ func bigIntToUint256(b *big.Int) *uint256.Int {
 	return uint256.MustFromBig(b)
 }
 
-// Helper to fetch validator indices for withdrawals from Alchemy
+var rpcLimiter = rate.NewLimiter(rate.Every(5*time.Millisecond), 1)
+
+// Helper to fetch validator indices for withdrawals
 func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []uint64, error) {
+	if err := rpcLimiter.Wait(context.Background()); err != nil {
+		return nil, nil, err
+	}
+
 	var url string
 	url = fmt.Sprintf(externalRpc)
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
