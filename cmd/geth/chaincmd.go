@@ -915,7 +915,7 @@ func processFirehoseBlocksWithReconnect(
 	externalRpc string,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
-	maxRetries := 10
+	maxRetries := 100
 	baseDelay := time.Second * 2
 	maxDelay := time.Minute * 5
 
