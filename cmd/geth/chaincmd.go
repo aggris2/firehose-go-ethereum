@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -879,7 +880,8 @@ func importFromFirehose(ctx *cli.Context) error {
 	defer db.Close()
 
 	var totalBlocks int
-	err = processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, func(blocks []*types.Block, batchNum int) error {
+	currentBlock := startBlock
+	err = processFirehoseBlocksWithReconnect(endpoint, apiToken, &currentBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -891,6 +893,7 @@ func importFromFirehose(ctx *cli.Context) error {
 		}
 		fmt.Printf("Imported batch %d of %d blocks (blocks %d-%d)\n", batchNum, len(blocks), firstNum, lastNum)
 		totalBlocks += len(blocks)
+		currentBlock = int64(lastNum + 1)
 		return nil
 	})
 	if err != nil {
@@ -898,6 +901,46 @@ func importFromFirehose(ctx *cli.Context) error {
 	}
 	fmt.Printf("Import completed successfully. Total blocks imported: %d\n", totalBlocks)
 	return nil
+}
+
+func processFirehoseBlocksWithReconnect(
+	endpoint string,
+	apiToken string,
+	startBlock *int64,
+	endBlock uint64,
+	batchSize int,
+	workerCount int,
+	bufferSize int,
+	chainID *big.Int,
+	externalRpc string,
+	handler func(blocks []*types.Block, batchNum int) error,
+) error {
+	maxRetries := 10
+	baseDelay := time.Second * 2
+	maxDelay := time.Minute * 5
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		fmt.Printf("Starting/resuming stream from block %d (attempt %d/%d)\n", *startBlock, attempt+1, maxRetries)
+
+		err := processFirehoseBlocks(endpoint, apiToken, *startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
+
+		if err == nil {
+			return nil // Success
+		}
+
+		// Check if this is a stream error that warrants reconnection
+		if isRetryableError(err) {
+			delay := calculateBackoffDelay(attempt, baseDelay, maxDelay)
+			fmt.Printf("Stream error occurred: %v. Retrying in %v...\n", err, delay)
+			time.Sleep(delay)
+			continue
+		}
+
+		// Non-retryable error
+		return err
+	}
+
+	return fmt.Errorf("exceeded maximum retry attempts (%d)", maxRetries)
 }
 
 func processFirehoseBlocks(
@@ -919,7 +962,10 @@ func processFirehoseBlocks(
 	defer closeFunc()
 	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
-	stream, err := client.Blocks(context.Background(), &pbfirehose.Request{
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	defer cancel()
+
+	stream, err := client.Blocks(ctx, &pbfirehose.Request{
 		StartBlockNum: startBlock,
 		StopBlockNum:  endBlock,
 	}, grpcOpts...)
@@ -1034,4 +1080,38 @@ func processFirehoseBlocks(
 	case <-doneCh:
 		return nil
 	}
+}
+
+func isRetryableError(err error) bool {
+	errStr := err.Error()
+	// Check for common retryable errors
+	retryableErrors := []string{
+		"unexpected EOF",
+		"connection reset by peer",
+		"broken pipe",
+		"context deadline exceeded",
+		"transport is closing",
+		"code = Unavailable",
+		"code = Internal",
+		"code = DeadlineExceeded",
+		"rpc error",
+	}
+
+	for _, retryableErr := range retryableErrors {
+		if strings.Contains(errStr, retryableErr) {
+			return true
+		}
+	}
+	return false
+}
+
+func calculateBackoffDelay(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
+	// Exponential backoff with jitter
+	delay := baseDelay * time.Duration(1<<uint(attempt))
+	if delay > maxDelay {
+		delay = maxDelay
+	}
+	// Add jitter (±25%)
+	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+	return delay + jitter - delay/4
 }
