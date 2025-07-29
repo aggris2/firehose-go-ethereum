@@ -1112,6 +1112,10 @@ func calculateBackoffDelay(attempt int, baseDelay, maxDelay time.Duration) time.
 		delay = maxDelay
 	}
 	// Add jitter (±25%)
-	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+	j := int64(delay) / 2
+	if j <= 0 {
+		j = 1
+	}
+	jitter := time.Duration(rand.Int63n(j))
 	return delay + jitter - delay/4
 }
