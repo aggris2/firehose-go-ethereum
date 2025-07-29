@@ -238,12 +238,16 @@ helps reduce storage requirements for nodes that don't need full historical data
 		Action:    importFromFirehose,
 		Name:      "import-from-firehose",
 		Usage:     "Import blocks from a Firehose gRPC endpoint directly into the chain database",
-		ArgsUsage: "<firehose-endpoint> <chainID> <startBlock> <rpc>",
+		ArgsUsage: "<firehose-endpoint> <chainID> <rpc>",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:  "batch-size",
 				Usage: "Number of blocks to import per batch",
-				Value: 1000,
+				Value: 10,
+			},
+			&cli.IntFlag{
+				Name:  "start-block",
+				Usage: "Start block number (inclusive, default: current block)",
 			},
 			&cli.Uint64Flag{
 				Name:  "end-block",
@@ -253,12 +257,12 @@ helps reduce storage requirements for nodes that don't need full historical data
 			&cli.IntFlag{
 				Name:  "worker-count",
 				Usage: "Number of concurrent workers for block conversion (default: 100)",
-				Value: 100,
+				Value: 10,
 			},
 			&cli.IntFlag{
 				Name:  "firehose-buffer-size",
 				Usage: "Buffer size for Firehose block conversion channels (default: 100)",
-				Value: 100,
+				Value: 10,
 			},
 		},
 		Description: `
@@ -267,7 +271,6 @@ Connects to a Firehose gRPC endpoint, streams Ethereum blocks, and imports them 
 Required arguments:
   <firehose-endpoint>   The Firehose gRPC endpoint to connect to
   <chainID>            The chain ID to use for block conversion
-  <startBlock>         The start block number (inclusive)
   <rpc>                The external rpc provider to fill in missing data
 
 The API token for the Firehose endpoint can be provided via the FIREHOSE_API_TOKEN environment variable.
@@ -845,15 +848,14 @@ func parseRange(s string) (start uint64, end uint64, ok bool) {
 }
 
 func importFromFirehose(ctx *cli.Context) error {
-	if ctx.Args().Len() < 4 {
-		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <startBlock> <rpc>")
+	if ctx.Args().Len() < 3 {
+		return fmt.Errorf("usage: import-from-firehose <firehose-endpoint> <chainID> <rpc>")
 	}
 
 	apiToken := os.Getenv("FIREHOSE_API_TOKEN")
 	endpoint := ctx.Args().Get(0)
 	chainIDStr := ctx.Args().Get(1)
-	startBlockStr := ctx.Args().Get(2)
-	externalRpc := ctx.Args().Get(3)
+	externalRpc := ctx.Args().Get(2)
 	batchSize := ctx.Int("batch-size")
 	endBlock := ctx.Uint64("end-block")
 	workerCount := ctx.Int("worker-count")
@@ -864,14 +866,6 @@ func importFromFirehose(ctx *cli.Context) error {
 		return fmt.Errorf("invalid chainID: %s", chainIDStr)
 	}
 
-	startBlock, err := strconv.ParseInt(startBlockStr, 10, 64)
-	if err != nil {
-		return fmt.Errorf("invalid startBlock: %s", startBlockStr)
-	}
-	if startBlock < 0 {
-		return fmt.Errorf("startBlock must be non-negative")
-	}
-
 	// Open Geth stack and chain
 	stack, cfg := makeConfigNode(ctx)
 	defer stack.Close()
@@ -879,9 +873,28 @@ func importFromFirehose(ctx *cli.Context) error {
 	chain, db := utils.MakeChain(ctx, stack, false)
 	defer db.Close()
 
+	var startBlock int
+	if ctx.IsSet("start-block") {
+		startBlock = ctx.Int("start-block")
+		if startBlock < 0 {
+			return fmt.Errorf("startBlock must be non-negative")
+		}
+		fmt.Printf("Starting from user-specified block: %d\n", startBlock)
+	} else {
+		// Resume from the local chain head + 1
+		head := chain.CurrentBlock()
+		if head != nil {
+			startBlock = int(head.Number.Uint64() + 1)
+			fmt.Printf("No start block specified. Resuming from last imported block: %d\n", startBlock)
+		} else {
+			startBlock = 0 // start from genesis
+			fmt.Println("No start block specified and no local chain found. Starting from genesis (block 0).")
+		}
+	}
+
 	var totalBlocks int
 	currentBlock := startBlock
-	err = processFirehoseBlocksWithReconnect(endpoint, apiToken, &currentBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, func(blocks []*types.Block, batchNum int) error {
+	err := processFirehoseBlocksWithReconnect(endpoint, apiToken, &currentBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, func(blocks []*types.Block, batchNum int) error {
 		if len(blocks) == 0 {
 			return nil
 		}
@@ -893,7 +906,7 @@ func importFromFirehose(ctx *cli.Context) error {
 		}
 		fmt.Printf("Imported batch %d of %d blocks (blocks %d-%d)\n", batchNum, len(blocks), firstNum, lastNum)
 		totalBlocks += len(blocks)
-		currentBlock = int64(lastNum + 1)
+		currentBlock = int(lastNum + 1)
 		return nil
 	})
 	if err != nil {
@@ -906,7 +919,7 @@ func importFromFirehose(ctx *cli.Context) error {
 func processFirehoseBlocksWithReconnect(
 	endpoint string,
 	apiToken string,
-	startBlock *int64,
+	startBlock *int,
 	endBlock uint64,
 	batchSize int,
 	workerCount int,
@@ -946,7 +959,7 @@ func processFirehoseBlocksWithReconnect(
 func processFirehoseBlocks(
 	endpoint string,
 	apiToken string,
-	startBlock int64,
+	startBlock int,
 	endBlock uint64,
 	batchSize int,
 	workerCount int,
@@ -966,7 +979,7 @@ func processFirehoseBlocks(
 	defer cancel()
 
 	stream, err := client.Blocks(ctx, &pbfirehose.Request{
-		StartBlockNum: startBlock,
+		StartBlockNum: int64(startBlock),
 		StopBlockNum:  endBlock,
 	}, grpcOpts...)
 	if err != nil {
