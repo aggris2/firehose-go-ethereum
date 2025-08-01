@@ -21,12 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	pbfirehose "github.com/streamingfast/pbgo/sf/firehose/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -38,6 +38,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -872,6 +873,7 @@ func importFromFirehose(ctx *cli.Context) error {
 	utils.SetupMetrics(&cfg.Metrics)
 	chain, db := utils.MakeChain(ctx, stack, false)
 	defer db.Close()
+	defer chain.Stop()
 
 	var startBlock int
 	if ctx.IsSet("start-block") {
@@ -929,23 +931,34 @@ func processFirehoseBlocksWithReconnect(
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
 	maxRetries := 100
-	baseDelay := time.Second * 2
-	maxDelay := time.Minute * 5
+	attempt := 0
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		fmt.Printf("Starting/resuming stream from block %d (attempt %d/%d)\n", *startBlock, attempt+1, maxRetries)
+	for attempt < maxRetries {
+		prev := *startBlock
 
-		err := processFirehoseBlocks(endpoint, apiToken, *startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
+		err := retry.Do(
+			func() error {
+				return processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
+			},
+			retry.Attempts(1),
+			retry.DelayType(retry.BackOffDelay),
+			retry.Delay(time.Second*2),
+			retry.MaxDelay(time.Minute*5),
+		)
 
 		if err == nil {
-			return nil // Success
+			return nil // success
 		}
 
-		// Check if this is a stream error that warrants reconnection
+		if *startBlock > prev {
+			fmt.Printf("Progress detected (%d → %d), resetting attempts\n", prev, *startBlock)
+			attempt = 0
+			continue
+		}
+
 		if isRetryableError(err) {
-			delay := calculateBackoffDelay(attempt, baseDelay, maxDelay)
-			fmt.Printf("Stream error occurred: %v. Retrying in %v...\n", err, delay)
-			time.Sleep(delay)
+			fmt.Printf("Retryable error: %v\n", err)
+			attempt++
 			continue
 		}
 
@@ -953,13 +966,13 @@ func processFirehoseBlocksWithReconnect(
 		return err
 	}
 
-	return fmt.Errorf("exceeded maximum retry attempts (%d)", maxRetries)
+	return fmt.Errorf("exceeded max retries (%d)", maxRetries)
 }
 
 func processFirehoseBlocks(
 	endpoint string,
 	apiToken string,
-	startBlock int,
+	startBlock *int,
 	endBlock uint64,
 	batchSize int,
 	workerCount int,
@@ -979,7 +992,7 @@ func processFirehoseBlocks(
 	defer cancel()
 
 	stream, err := client.Blocks(ctx, &pbfirehose.Request{
-		StartBlockNum: int64(startBlock),
+		StartBlockNum: int64(*startBlock),
 		StopBlockNum:  endBlock,
 	}, grpcOpts...)
 	if err != nil {
@@ -1071,6 +1084,7 @@ func processFirehoseBlocks(
 						errCh <- err
 						return
 					}
+					*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
 					batchNum++
 					blocks = blocks[:0]
 				}
@@ -1082,6 +1096,7 @@ func processFirehoseBlocks(
 				errCh <- err
 				return
 			}
+			*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
 		}
 		close(doneCh)
 	}()
@@ -1116,19 +1131,4 @@ func isRetryableError(err error) bool {
 		}
 	}
 	return false
-}
-
-func calculateBackoffDelay(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
-	// Exponential backoff with jitter
-	delay := baseDelay * time.Duration(1<<uint(attempt))
-	if delay > maxDelay {
-		delay = maxDelay
-	}
-	// Add jitter (±25%)
-	j := int64(delay) / 2
-	if j <= 0 {
-		j = 1
-	}
-	jitter := time.Duration(rand.Int63n(j))
-	return delay + jitter - delay/4
 }
