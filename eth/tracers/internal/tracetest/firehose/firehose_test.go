@@ -1,8 +1,6 @@
 package firehose_test
 
 import (
-	"github.com/ethereum/go-ethereum/core/tracing"
-	"github.com/ethereum/go-ethereum/eth/tracers"
 	"math/big"
 	"path/filepath"
 	"strings"
@@ -45,7 +43,7 @@ func TestFirehosePrestate(t *testing.T) {
 
 		for _, model := range tracingModels {
 			t.Run(string(model)+"/"+name, func(t *testing.T) {
-				tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model, false)
+				tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model)
 				defer onClose()
 
 				runPrestateBlock(t, filepath.Join(folder, "prestate.json"), tracingHooks)
@@ -171,7 +169,7 @@ func TestFirehose_EIP7702(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702", false)
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702")
 }
 
 func TestFirehose_SystemCalls(t *testing.T) {
@@ -182,23 +180,15 @@ func TestFirehose_SystemCalls(t *testing.T) {
 	engine := beacon.New(ethash.NewFaker())
 	_, blocks, _ := core.GenerateChainWithGenesis(gspec, engine, 1, func(i int, b *core.BlockGen) {})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls", false)
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls")
 }
 
-func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string, disableBackwardCompatibility bool) {
+func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string) {
 	t.Helper()
 
 	for _, model := range tracingModels {
 		t.Run(string(model), func(t *testing.T) {
-			var tracer *tracers.Firehose
-			var tracingHooks *tracing.Hooks
-			var onClose func()
-
-			if disableBackwardCompatibility {
-				tracer, tracingHooks, onClose = newFirehoseTestTracer(t, model, true)
-			} else {
-				tracer, tracingHooks, onClose = newFirehoseTestTracer(t, model, false)
-			}
+			tracer, tracingHooks, onClose := newFirehoseTestTracer(t, model)
 			defer onClose()
 
 			chain, err := core.NewBlockChain(rawdb.NewMemoryDatabase(), genesisSpec, engine, &core.BlockChainConfig{VmConfig: vm.Config{Tracer: tracingHooks}})
@@ -250,5 +240,5 @@ func TestFirehose_Withdrawals(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals", false)
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals")
 }

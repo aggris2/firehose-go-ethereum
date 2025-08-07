@@ -29,31 +29,17 @@ type firehoseInitLine struct {
 
 type firehoseBlockLines []firehoseBlockLine
 
-func newFirehoseTestTracer(t *testing.T, model tracingModel, disableBackwardCompatibility bool) (*tracers.Firehose, *tracing.Hooks, func()) {
+func newFirehoseTestTracer(t *testing.T, model tracingModel) (*tracers.Firehose, *tracing.Hooks, func()) {
 	t.Helper()
 
-	var tracer *tracers.Firehose
-	var err error
-
-	if disableBackwardCompatibility {
-		tracer, err = tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
-		"_private": {
-			"flushToTestBuffer": true,
-			"ignoreGenesisBlock": true,
-			"forcedBackwardCompatibility": false
-		}
-	}`)))
-		require.NoError(t, err)
-	} else {
-		tracer, err = tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
+	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
 		"_private": {
 			"flushToTestBuffer": true,
 			"ignoreGenesisBlock": true,
 			"forcedBackwardCompatibility": %t
 		}
 	}`, model == tracingModelFirehose2_3)))
-		require.NoError(t, err)
-	}
+	require.NoError(t, err)
 
 	hooks := tracers.NewTracingHooksFromFirehose(tracer)
 
