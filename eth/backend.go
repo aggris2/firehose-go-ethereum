@@ -252,8 +252,8 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	// Override the chain config with provided settings.
 	var overrides core.ChainOverrides
-	if config.OverridePrague != nil {
-		overrides.OverridePrague = config.OverridePrague
+	if config.OverrideOsaka != nil {
+		overrides.OverrideOsaka = config.OverrideOsaka
 	}
 	if config.OverrideVerkle != nil {
 		overrides.OverrideVerkle = config.OverrideVerkle
@@ -278,7 +278,11 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if fb := eth.blockchain.CurrentFinalBlock(); fb != nil {
 		finalBlock = fb.Number.Uint64()
 	}
-	eth.filterMaps = filtermaps.NewFilterMaps(chainDb, chainView, historyCutoff, finalBlock, filtermaps.DefaultParams, fmConfig)
+	filterMaps, err := filtermaps.NewFilterMaps(chainDb, chainView, historyCutoff, finalBlock, filtermaps.DefaultParams, fmConfig)
+	if err != nil {
+		return nil, err
+	}
+	eth.filterMaps = filterMaps
 	eth.closeFilterMaps = make(chan chan struct{})
 
 	// TxPool
