@@ -215,7 +215,6 @@ func NewFirehoseFromRawJSON(cfg json.RawMessage) (*Firehose, error) {
 
 func NewFirehose(config *FirehoseConfig) *Firehose {
 	log.Info("Firehose tracer created", config.LogKeyValues()...)
-
 	firehose := &Firehose{
 		// Global state
 		outputBuffer:               bytes.NewBuffer(make([]byte, 0, 100*1024*1024)),
@@ -425,6 +424,20 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	if f.block.Header.BaseFeePerGas != nil {
 		f.blockBaseFee = f.block.Header.BaseFeePerGas.Native()
+	}
+
+	if !*f.applyBackwardCompatibility {
+		if withdrawals := event.Block.Withdrawals(); withdrawals != nil {
+			f.block.Withdrawals = make([]*pbeth.Withdrawal, len(withdrawals))
+			for i, w := range withdrawals {
+				f.block.Withdrawals[i] = &pbeth.Withdrawal{
+					Index:          w.Index,
+					ValidatorIndex: w.Validator,
+					Address:        w.Address.Bytes(),
+					Amount:         w.Amount,
+				}
+			}
+		}
 	}
 
 	f.blockFinality.populateFromChain(event.Finalized)

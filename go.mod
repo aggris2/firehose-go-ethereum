@@ -59,11 +59,10 @@ require (
 	github.com/protolambda/zrnt v0.34.1
 	github.com/protolambda/ztyp v0.2.2
 	github.com/rs/cors v1.10.0
-	github.com/sethvargo/go-retry v0.2.3
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/firehose-core v1.9.12
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250507011922-e3d3efeda61d
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807160156-717f0e2c89a9
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.14
