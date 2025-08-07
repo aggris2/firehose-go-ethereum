@@ -1475,6 +1475,20 @@ func (f *Firehose) OnBalanceChange(a common.Address, prev, new *big.Int, reason 
 	} else {
 		f.block.BalanceChanges = append(f.block.BalanceChanges, change)
 	}
+
+	if !*f.applyBackwardCompatibility {
+		// Special handling for withdrawal balance changes
+		if reason == tracing.BalanceIncreaseWithdrawal {
+			if f.block != nil && len(f.block.Withdrawals) > 0 {
+				for _, w := range f.block.Withdrawals {
+					if bytes.Equal(w.Address, a.Bytes()) && new.Uint64()-prev.Uint64() == w.Amount {
+						change.WithdrawalIndex = &w.Index
+						break
+					}
+				}
+			}
+		}
+	}
 }
 
 func (f *Firehose) newBalanceChange(tag string, address common.Address, oldValue, newValue *big.Int, reason pbeth.BalanceChange_Reason) *pbeth.BalanceChange {

@@ -368,8 +368,8 @@ github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391 h1:p2GJ3SQpBUS
 github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391/go.mod h1:vwPOUlNHxOVqoPrkyDCpvYvE9FtXnX2bSQe3MvEabT0=
 github.com/streamingfast/firehose-core v1.9.12 h1:NXoSITYoOWcfR56ZYrk653YSEBxQ1vscYkEQRVgJk+k=
 github.com/streamingfast/firehose-core v1.9.12/go.mod h1:oDD2iMr5tiSYTRErmAbl3ONlsnypEEvZwJjSrjFkYiM=
-github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807160156-717f0e2c89a9 h1:KByx0SJ/Yfj8R8MKHHwGnKXzJ4EUun6R2GtO9phFuWk=
-github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807160156-717f0e2c89a9/go.mod h1:CG22ObinxSbKIP19bAj0uro0a290kzZTiBbjL8VR0SE=
+github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807173826-407fc26a6961 h1:LlNdXhhDAkcRPgN3lvl4WlzZBQ0pw5QizFZZbAt8cqg=
+github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807173826-407fc26a6961/go.mod h1:CG22ObinxSbKIP19bAj0uro0a290kzZTiBbjL8VR0SE=
 github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 h1:RN5mrigyirb8anBEtdjtHFIufXdacyTi6i4KBfeNXeo=
 github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091/go.mod h1:VlduQ80JcGJSargkRU4Sg9Xo63wZD/l8A5NC/Uo1/uU=
 github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000 h1:1YdNfouYACMSCCWddsyBWZzX7c9s0tBUIoAbMb7mSAM=
