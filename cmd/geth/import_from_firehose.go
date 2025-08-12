@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"os"
-	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -18,7 +19,9 @@ import (
 	pbfirehose "github.com/streamingfast/pbgo/sf/firehose/v2"
 	"github.com/urfave/cli/v2"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/status"
 )
 
 func importFromFirehose(ctx *cli.Context) error {
@@ -284,24 +287,36 @@ func processFirehoseBlocks(
 }
 
 func isRetryableError(err error) bool {
-	errStr := err.Error()
-	// Check for common retryable errors
-	retryableErrors := []string{
-		"unexpected EOF",
-		"connection reset by peer",
-		"broken pipe",
-		"context deadline exceeded",
-		"transport is closing",
-		"code = Unavailable",
-		"code = Internal",
-		"code = DeadlineExceeded",
-		"rpc error",
+	if err == nil {
+		return false
 	}
 
-	for _, retryableErr := range retryableErrors {
-		if strings.Contains(errStr, retryableErr) {
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unavailable, codes.Internal, codes.DeadlineExceeded, codes.ResourceExhausted:
+			return true
+		}
+		return false
+	}
+
+	// Check for network/system errors using proper error types
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	// Check for connection errors using proper error types
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		switch syscallErr.Err {
+		case syscall.ECONNRESET, syscall.EPIPE, syscall.ECONNREFUSED:
 			return true
 		}
 	}
+
+	// Check for context errors
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+
 	return false
 }
