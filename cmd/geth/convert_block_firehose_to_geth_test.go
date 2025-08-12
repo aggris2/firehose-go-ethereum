@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
-	"flag"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
@@ -16,8 +15,6 @@ import (
 	"testing"
 	"time"
 )
-
-var update = flag.Bool("update", false, "update golden files")
 
 func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 	tests := []struct {
@@ -110,7 +107,7 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 			}
 
 			// Only do golden file comparison for the valid block case
-			if tt.name == "valid block" && !tt.wantErr {
+			if !tt.wantErr {
 				type blockForGolden struct {
 					Header       *types.Header
 					Transactions []*types.Transaction
@@ -125,8 +122,9 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 				if err != nil {
 					t.Fatalf("failed to marshal block: %v", err)
 				}
+				goldenUpdate := os.Getenv("GOLDEN_UPDATE") == "true"
 				goldenFile := filepath.Join("testdata", "firehose_block.golden.json")
-				if *update {
+				if goldenUpdate {
 					if err := os.MkdirAll(filepath.Dir(goldenFile), 0755); err != nil {
 						t.Fatalf("failed to create testdata dir: %v", err)
 					}
