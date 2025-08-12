@@ -3,6 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"math/big"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/avast/retry-go"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -12,12 +19,6 @@ import (
 	"github.com/urfave/cli/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding/gzip"
-	"io"
-	"math/big"
-	"os"
-	"strings"
-	"sync"
-	"time"
 )
 
 func importFromFirehose(ctx *cli.Context) error {
@@ -160,7 +161,7 @@ func processFirehoseBlocks(
 	defer closeFunc()
 	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	stream, err := client.Blocks(ctx, &pbfirehose.Request{
