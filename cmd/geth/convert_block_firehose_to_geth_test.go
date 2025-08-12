@@ -1,18 +1,20 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
-
-	"github.com/ethereum/go-ethereum/core/types"
-	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var update = flag.Bool("update", false, "update golden files")
@@ -39,47 +41,47 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 			name: "valid block",
 			pbBlock: &pbeth.Block{
 				Header: &pbeth.BlockHeader{
-					ParentHash:       []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
-					UncleHash:        []byte{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33},
-					Coinbase:         []byte{3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22},
-					StateRoot:        []byte{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35},
-					TransactionsRoot: []byte{5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36},
-					ReceiptRoot:      []byte{6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37},
+					ParentHash:       hash32("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+					UncleHash:        hash32("0x02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021"),
+					Coinbase:         addressBytes("0x030405060708090a0b0c0d0e0f10111213141516"),
+					StateRoot:        hash32("0x0405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223"),
+					TransactionsRoot: hash32("0x05060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324"),
+					ReceiptRoot:      hash32("0x060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425"),
 					LogsBloom:        make([]byte, 256),
 					Difficulty:       &pbeth.BigInt{Bytes: []byte{100}},
 					Number:           12345,
 					GasLimit:         30000000,
 					GasUsed:          15000000,
 					Timestamp:        timestamppb.New(time.Unix(1634952202, 0)),
-					ExtraData:        []byte{8, 9, 10},
-					MixHash:          []byte{9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40},
+					ExtraData:        hexBytes("0x08090a"),
+					MixHash:          hash32("0x090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728"),
 					Nonce:            123456789,
 					BaseFeePerGas:    &pbeth.BigInt{Bytes: big.NewInt(20000000000).Bytes()},
-					WithdrawalsRoot:  []byte{101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132},
+					WithdrawalsRoot:  hash32("0x65666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8081828384"),
 					BlobGasUsed:      new(uint64),
 					ExcessBlobGas:    new(uint64),
-					ParentBeaconRoot: []byte{201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232},
-					RequestsHash:     []byte{151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182},
+					ParentBeaconRoot: hash32("0xc9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8"),
+					RequestsHash:     hash32("0x9798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6"),
 				},
 				TransactionTraces: []*pbeth.TransactionTrace{
 					{
 						Type:     0, // LegacyTx
-						Hash:     []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
+						Hash:     hash32("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
 						Nonce:    0,
 						GasPrice: &pbeth.BigInt{Bytes: big.NewInt(20000000000).Bytes()},
 						GasLimit: 21000,
-						To:       []byte{11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30},
+						To:       addressBytes("0x0b0c0d0e0f101112131415161718191a1b1c1d1e"),
 						Value:    &pbeth.BigInt{Bytes: big.NewInt(1000000000000000000).Bytes()},
 						Input:    []byte{},
-						V:        []byte{27},
-						R:        []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
-						S:        []byte{33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64},
+						V:        hexBytes("0x1b"),
+						R:        hexBytes("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
+						S:        hexBytes("0x2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40"),
 						Status:   1,
 						GasUsed:  21000,
 						Receipt: &pbeth.TransactionReceipt{
-							StateRoot:         []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
+							StateRoot:         hash32("0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"),
 							CumulativeGasUsed: 21000,
-							LogsBloom:         make([]byte, 256), // Bloom filter is 256 bytes
+							LogsBloom:         make([]byte, 256),
 							Logs:              []*pbeth.Log{},
 						},
 						MaxPriorityFeePerGas:  &pbeth.BigInt{Bytes: []byte{0}},
@@ -98,7 +100,7 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			block, err := convertFirehoseBlockToGethBlock(tt.pbBlock, big.NewInt(0))
+			block, err := convertFirehoseBlockToGethBlock(tt.pbBlock, big.NewInt(0), "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("convertFirehoseBlockToGethBlock() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -143,4 +145,22 @@ func TestConvertFirehoseBlockToGethBlock(t *testing.T) {
 			}
 		})
 	}
+}
+
+func hexBytes(s string) []byte {
+	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
+	if err != nil {
+		panic(err) // fine for test code
+	}
+	return b
+}
+
+func hash32(s string) []byte {
+	h := common.HexToHash(s)
+	return h[:]
+}
+
+func addressBytes(s string) []byte {
+	a := common.HexToAddress(s)
+	return a[:]
 }

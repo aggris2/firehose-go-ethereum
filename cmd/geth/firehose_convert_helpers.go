@@ -21,7 +21,7 @@ import (
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
-func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, externalRpc string, endpoint string) (*types.Block, error) {
+func convertFirehoseBlockToGethBlock(pbBlock *pbeth.Block, chainID *big.Int, externalRpc string) (*types.Block, error) {
 	if pbBlock == nil || pbBlock.Header == nil {
 		return nil, fmt.Errorf("invalid block or header")
 	}
@@ -395,8 +395,6 @@ func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []
 		return nil, nil, err
 	}
 
-	var url string
-	url = fmt.Sprintf(externalRpc)
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
 	payload := fmt.Sprintf(`{
 		"id": 1,
@@ -405,7 +403,7 @@ func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []
 		"params": ["%s", false]
 	}`, blockHex)
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(payload)))
+	req, err := http.NewRequest("POST", externalRpc, bytes.NewBuffer([]byte(payload)))
 	if err != nil {
 		return nil, nil, err
 	}

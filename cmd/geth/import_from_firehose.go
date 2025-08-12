@@ -216,7 +216,7 @@ func processFirehoseBlocks(
 					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
 					continue
 				}
-				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, externalRpc, endpoint)
+				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, externalRpc)
 				if err != nil {
 					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
 					continue

@@ -16,12 +16,12 @@
     "mixHash": "0x090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
     "nonce": "0x00000000075bcd15",
     "baseFeePerGas": "0x4a817c800",
-    "withdrawalsRoot": null,
+    "withdrawalsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
     "blobGasUsed": "0x0",
     "excessBlobGas": "0x0",
     "parentBeaconBlockRoot": "0xc9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8",
     "requestsHash": "0x9798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6",
-    "hash": "0x6a7b9393fb611e3bb918845a503f484c612895f6b1982679359a70bf5c166f47"
+    "hash": "0x1ba93be5ac029d1ab5cc26db3084b401d36fd1e294795e9a1ed1838539992433"
   },
   "Transactions": [
     {
