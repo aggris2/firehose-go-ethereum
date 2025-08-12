@@ -1,23 +1,21 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"math/big"
+	"strconv"
+	"sync"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
-	"golang.org/x/time/rate"
-	"io/ioutil"
-	"math/big"
-	"net/http"
-	"strconv"
-	"time"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -387,62 +385,73 @@ func bigIntToUint256(b *big.Int) *uint256.Int {
 	return uint256.MustFromBig(b)
 }
 
-var rpcLimiter = rate.NewLimiter(rate.Every(5*time.Millisecond), 1)
+// Global rate limiter for RPC calls to prevent hitting endpoint limits
+var (
+	rpcCallMutex sync.Mutex
+	lastRPCCall  time.Time
+	minCallDelay = 20 * time.Millisecond // 50 calls per second max
+)
 
 // Helper to fetch validator indices for withdrawals
 func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []uint64, error) {
-	if err := rpcLimiter.Wait(context.Background()); err != nil {
-		return nil, nil, err
+	// Rate limit RPC calls
+	rpcCallMutex.Lock()
+	timeSinceLastCall := time.Since(lastRPCCall)
+	if timeSinceLastCall < minCallDelay {
+		sleepTime := minCallDelay - timeSinceLastCall
+		time.Sleep(sleepTime)
 	}
+	lastRPCCall = time.Now()
+	rpcCallMutex.Unlock()
+
+	// Create RPC client
+	client, err := rpc.Dial(externalRpc)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to dial RPC endpoint: %v", err)
+	}
+	defer client.Close()
 
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
-	payload := fmt.Sprintf(`{
-		"id": 1,
-		"jsonrpc": "2.0",
-		"method": "eth_getBlockByNumber",
-		"params": ["%s", false]
-	}`, blockHex)
 
-	req, err := http.NewRequest("POST", externalRpc, bytes.NewBuffer([]byte(payload)))
-	if err != nil {
-		return nil, nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		log.Warn("Non-200 response from validator index fetch", "status", resp.StatusCode, "body", string(body))
-		return nil, nil, fmt.Errorf("non-200 response: %d", resp.StatusCode)
-	}
-
-	// Parse the response
+	// Use RPC client to call eth_getBlockByNumber
 	var result struct {
-		Result struct {
-			Withdrawals []struct {
-				Index          string `json:"index"`
-				ValidatorIndex string `json:"validatorIndex"`
-			} `json:"withdrawals"`
-		} `json:"result"`
+		Withdrawals []struct {
+			Index          string `json:"index"`
+			ValidatorIndex string `json:"validatorIndex"`
+		} `json:"withdrawals"`
 	}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, nil, err
+
+	err = client.CallContext(context.Background(), &result, "eth_getBlockByNumber", blockHex, false)
+	if err != nil {
+		// If we hit rate limit, increase the delay
+		errStr := err.Error()
+		if errStr != "" && (errStr[:3] == "429" || errStr[:3] == "Too" || errStr[:3] == "500") {
+			log.Warn("Rate limit hit, increasing delay", "current_delay_ms", minCallDelay.Milliseconds())
+			rpcCallMutex.Lock()
+			minCallDelay = time.Duration(float64(minCallDelay) * 1.5) // Increase by 50%
+			if minCallDelay > 100*time.Millisecond {
+				minCallDelay = 100 * time.Millisecond // Cap at 10 calls per second
+			}
+			rpcCallMutex.Unlock()
+		}
+		return nil, nil, fmt.Errorf("RPC call failed: %v", err)
 	}
+
+	// If successful, gradually decrease the delay (exponential backoff)
+	rpcCallMutex.Lock()
+	if minCallDelay > 20*time.Millisecond {
+		minCallDelay = time.Duration(float64(minCallDelay) * 0.95) // Decrease by 5%
+		if minCallDelay < 20*time.Millisecond {
+			minCallDelay = 20 * time.Millisecond
+		}
+	}
+	rpcCallMutex.Unlock()
 
 	var indices []uint64
 	var validatorIndices []uint64
 
-	// Retrive data
-	for _, w := range result.Result.Withdrawals {
+	// Parse data
+	for _, w := range result.Withdrawals {
 		idx, err1 := strconv.ParseUint(w.Index[2:], 16, 64)
 		valIdx, err2 := strconv.ParseUint(w.ValidatorIndex[2:], 16, 64)
 		if err1 == nil && err2 == nil {
