@@ -1,11 +1,14 @@
 package main
 
+// This file contains helpers for converting Firehose protobuf blocks to geth blocks.
+// It includes rate limiting for external RPC calls using the standard golang.org/x/time/rate package.
+// The rate limiter starts at 50 calls/second and adapts based on endpoint responses.
+
 import (
 	"context"
 	"fmt"
 	"math/big"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -16,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
+	"golang.org/x/time/rate"
 )
 
 // convertFirehoseBlockToGethBlock converts a Firehose protobuf block to a geth Block
@@ -385,24 +389,19 @@ func bigIntToUint256(b *big.Int) *uint256.Int {
 	return uint256.MustFromBig(b)
 }
 
-// Global rate limiter for RPC calls to prevent hitting endpoint limits
-var (
-	rpcCallMutex sync.Mutex
-	lastRPCCall  time.Time
-	minCallDelay = 20 * time.Millisecond // 50 calls per second max
-)
-
 // Helper to fetch validator indices for withdrawals
 func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []uint64, error) {
-	// Rate limit RPC calls
-	rpcCallMutex.Lock()
-	timeSinceLastCall := time.Since(lastRPCCall)
-	if timeSinceLastCall < minCallDelay {
-		sleepTime := minCallDelay - timeSinceLastCall
-		time.Sleep(sleepTime)
+	var rpcLimiter = rate.NewLimiter(rate.Every(20*time.Millisecond), 1) // 50 calls per second max
+	var result struct {
+		Withdrawals []struct {
+			Index          string `json:"index"`
+			ValidatorIndex string `json:"validatorIndex"`
+		} `json:"withdrawals"`
 	}
-	lastRPCCall = time.Now()
-	rpcCallMutex.Unlock()
+
+	if err := rpcLimiter.Wait(context.Background()); err != nil {
+		return nil, nil, fmt.Errorf("rate limiter error: %v", err)
+	}
 
 	// Create RPC client
 	client, err := rpc.Dial(externalRpc)
@@ -412,45 +411,37 @@ func fetchValidatorIndices(externalRpc string, blockNumber uint64) ([]uint64, []
 	defer client.Close()
 
 	blockHex := fmt.Sprintf("0x%x", blockNumber)
-
-	// Use RPC client to call eth_getBlockByNumber
-	var result struct {
-		Withdrawals []struct {
-			Index          string `json:"index"`
-			ValidatorIndex string `json:"validatorIndex"`
-		} `json:"withdrawals"`
-	}
-
 	err = client.CallContext(context.Background(), &result, "eth_getBlockByNumber", blockHex, false)
+
+	// If we hit rate limit, increase the delay
 	if err != nil {
-		// If we hit rate limit, increase the delay
 		errStr := err.Error()
 		if errStr != "" && (errStr[:3] == "429" || errStr[:3] == "Too" || errStr[:3] == "500") {
-			log.Warn("Rate limit hit, increasing delay", "current_delay_ms", minCallDelay.Milliseconds())
-			rpcCallMutex.Lock()
-			minCallDelay = time.Duration(float64(minCallDelay) * 1.5) // Increase by 50%
-			if minCallDelay > 100*time.Millisecond {
-				minCallDelay = 100 * time.Millisecond // Cap at 10 calls per second
+			log.Warn("Rate limit hit, increasing delay")
+			currentRate := rpcLimiter.Limit()
+			newRate := currentRate * 0.7
+			if newRate < rate.Every(100*time.Millisecond) {
+				newRate = rate.Every(100 * time.Millisecond)
 			}
-			rpcCallMutex.Unlock()
+			rpcLimiter.SetLimit(newRate)
 		}
 		return nil, nil, fmt.Errorf("RPC call failed: %v", err)
 	}
 
 	// If successful, gradually decrease the delay (exponential backoff)
-	rpcCallMutex.Lock()
-	if minCallDelay > 20*time.Millisecond {
-		minCallDelay = time.Duration(float64(minCallDelay) * 0.95) // Decrease by 5%
-		if minCallDelay < 20*time.Millisecond {
-			minCallDelay = 20 * time.Millisecond
+	currentRate := rpcLimiter.Limit()
+	if currentRate < rate.Every(20*time.Millisecond) {
+		newRate := currentRate * 1.05 // Increase rate by 5%
+		if newRate > rate.Every(20*time.Millisecond) {
+			newRate = rate.Every(20 * time.Millisecond)
 		}
+		rpcLimiter.SetLimit(newRate)
 	}
-	rpcCallMutex.Unlock()
 
+	// Extract withdrawals
 	var indices []uint64
 	var validatorIndices []uint64
 
-	// Parse data
 	for _, w := range result.Withdrawals {
 		idx, err1 := strconv.ParseUint(w.Index[2:], 16, 64)
 		valIdx, err2 := strconv.ParseUint(w.ValidatorIndex[2:], 16, 64)
