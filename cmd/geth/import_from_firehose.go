@@ -106,6 +106,14 @@ func processFirehoseBlocksWithReconnect(
 	externalRpc string,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
+	// Create client once and reuse it
+	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
+	if err != nil {
+		return fmt.Errorf("failed to create Firehose client: %w", err)
+	}
+	defer closeFunc()
+	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
+
 	maxRetries := 100
 	attempt := 0
 
@@ -114,7 +122,7 @@ func processFirehoseBlocksWithReconnect(
 
 		err := retry.Do(
 			func() error {
-				return processFirehoseBlocks(endpoint, apiToken, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
+				return processFirehoseBlocksWithClient(client, grpcOpts, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
 			},
 			retry.Attempts(1),
 			retry.DelayType(retry.BackOffDelay),
@@ -145,9 +153,9 @@ func processFirehoseBlocksWithReconnect(
 	return fmt.Errorf("exceeded max retries (%d)", maxRetries)
 }
 
-func processFirehoseBlocks(
-	endpoint string,
-	apiToken string,
+func processFirehoseBlocksWithClient(
+	client pbfirehose.StreamClient,
+	grpcOpts []grpc.CallOption,
 	startBlock *int,
 	endBlock uint64,
 	batchSize int,
@@ -157,13 +165,6 @@ func processFirehoseBlocks(
 	externalRpc string,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
-	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
-	if err != nil {
-		return fmt.Errorf("failed to create Firehose client: %w", err)
-	}
-	defer closeFunc()
-	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
