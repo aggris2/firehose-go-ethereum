@@ -2,18 +2,17 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"os"
 	"sync"
-	"syscall"
 	"time"
 
-	"github.com/avast/retry-go"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/streamingfast/dgrpc"
 	"github.com/streamingfast/firehose-core/firehose/client"
 	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	pbfirehose "github.com/streamingfast/pbgo/sf/firehose/v2"
@@ -21,7 +20,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/status"
 )
 
 func importFromFirehose(ctx *cli.Context) error {
@@ -106,7 +104,6 @@ func processFirehoseBlocksWithReconnect(
 	externalRpc string,
 	handler func(blocks []*types.Block, batchNum int) error,
 ) error {
-	// Create client once and reuse it
 	client, closeFunc, grpcOpts, err := client.NewFirehoseClient(endpoint, apiToken, "", false, false)
 	if err != nil {
 		return fmt.Errorf("failed to create Firehose client: %w", err)
@@ -114,43 +111,43 @@ func processFirehoseBlocksWithReconnect(
 	defer closeFunc()
 	grpcOpts = append(grpcOpts, grpc.UseCompressor(gzip.Name))
 
-	maxRetries := 100
-	attempt := 0
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 0
+	backOff := backoff.WithContext(bo, context.Background())
 
-	for attempt < maxRetries {
+	for {
 		prev := *startBlock
 
-		err := retry.Do(
-			func() error {
-				return processFirehoseBlocksWithClient(client, grpcOpts, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
-			},
-			retry.Attempts(1),
-			retry.DelayType(retry.BackOffDelay),
-			retry.Delay(time.Second*2),
-			retry.MaxDelay(time.Minute*5),
-		)
+		err := processFirehoseBlocksWithClient(client, grpcOpts, startBlock, endBlock, batchSize, workerCount, bufferSize, chainID, externalRpc, handler)
 
 		if err == nil {
-			return nil // success
+			return nil
 		}
 
+		// Check for non-retryable gRPC errors
+		if dgrpcError := dgrpc.AsGRPCError(err); dgrpcError != nil {
+			switch dgrpcError.Code() {
+			case codes.Unauthenticated:
+				return fmt.Errorf("stream failure: %w", err)
+			case codes.InvalidArgument:
+				return fmt.Errorf("stream invalid: %w", err)
+			}
+		}
+
+		// Check if we made progress - reset backoff when progress is made
 		if *startBlock > prev {
-			fmt.Printf("Progress detected (%d → %d), resetting attempts\n", prev, *startBlock)
-			attempt = 0
+			fmt.Printf("Progress detected (%d → %d), resetting backoff\n", prev, *startBlock)
+			backOff.Reset()
 			continue
 		}
 
-		if isRetryableError(err) {
-			fmt.Printf("Retryable error: %v\n", err)
-			attempt++
-			continue
+		// Get next backoff delay
+		sleepFor := backOff.NextBackOff()
+		if sleepFor == backoff.Stop {
+			return fmt.Errorf("backoff expired: %w", err)
 		}
-
-		// Non-retryable error
-		return err
+		time.Sleep(sleepFor)
 	}
-
-	return fmt.Errorf("exceeded max retries (%d)", maxRetries)
 }
 
 func processFirehoseBlocksWithClient(
@@ -285,39 +282,4 @@ func processFirehoseBlocksWithClient(
 	case <-doneCh:
 		return nil
 	}
-}
-
-func isRetryableError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if st, ok := status.FromError(err); ok {
-		switch st.Code() {
-		case codes.Unavailable, codes.Internal, codes.DeadlineExceeded, codes.ResourceExhausted:
-			return true
-		}
-		return false
-	}
-
-	// Check for network/system errors using proper error types
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return true
-	}
-
-	// Check for connection errors using proper error types
-	var syscallErr *os.SyscallError
-	if errors.As(err, &syscallErr) {
-		switch syscallErr.Err {
-		case syscall.ECONNRESET, syscall.EPIPE, syscall.ECONNREFUSED:
-			return true
-		}
-	}
-
-	// Check for context errors
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return true
-	}
-
-	return false
 }
