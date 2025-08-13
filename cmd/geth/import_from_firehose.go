@@ -150,6 +150,127 @@ func processFirehoseBlocksWithReconnect(
 	}
 }
 
+// Type definitions for the pipeline
+type seqResponse struct {
+	seq  uint64
+	resp *pbfirehose.Response
+}
+
+type seqBlock struct {
+	seq   uint64
+	block *types.Block
+}
+
+// streamReader reads from the Firehose stream and sends responses with sequence numbers
+func streamReader(stream pbfirehose.Stream_BlocksClient, rawCh chan<- seqResponse, errCh chan<- error) {
+	defer close(rawCh)
+	var seq uint64
+	for {
+		resp, err := stream.Recv()
+		if err != nil {
+			if err == io.EOF {
+				fmt.Printf("Stream completed successfully after %d messages\n", seq)
+				break
+			}
+			errCh <- fmt.Errorf("error receiving from stream (seq %d): %w", seq, err)
+			return
+		}
+		rawCh <- seqResponse{seq: seq, resp: resp}
+		seq++
+	}
+}
+
+// blockConverter converts Firehose blocks to Geth blocks using a worker pool
+func blockConverter(
+	rawCh <-chan seqResponse,
+	blockCh chan<- seqBlock,
+	workerCount int,
+	chainID *big.Int,
+	externalRpc string,
+) {
+	var wg sync.WaitGroup
+	wg.Add(workerCount)
+
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			defer wg.Done()
+			for sr := range rawCh {
+				ethBlock := &pbeth.Block{}
+				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
+					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
+					continue
+				}
+				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, externalRpc)
+				if err != nil {
+					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
+					continue
+				}
+				blockCh <- seqBlock{seq: sr.seq, block: block}
+			}
+		}()
+	}
+
+	// Close blockCh when all workers are done
+	go func() {
+		wg.Wait()
+		close(blockCh)
+	}()
+}
+
+// blockBatcher processes blocks in order and batches them for the handler
+func blockBatcher(
+	blockCh <-chan seqBlock,
+	batchSize int,
+	startBlock *int,
+	handler func(blocks []*types.Block, batchNum int) error,
+	errCh chan<- error,
+	doneCh chan<- struct{},
+) {
+	var (
+		blocks   []*types.Block
+		batchNum int
+		nextSeq  uint64 = 0
+		buffer          = make(map[uint64]*types.Block)
+	)
+
+	for sb := range blockCh {
+		buffer[sb.seq] = sb.block
+		// Drain in-order blocks from buffer
+		for {
+			block, ok := buffer[nextSeq]
+			if !ok {
+				break
+			}
+			blocks = append(blocks, block)
+			delete(buffer, nextSeq)
+			nextSeq++
+			if len(blocks) >= batchSize {
+				if err := handler(blocks, batchNum); err != nil {
+					errCh <- fmt.Errorf("handler failed for batch %d (blocks %d-%d): %w",
+						batchNum, blocks[0].NumberU64(), blocks[len(blocks)-1].NumberU64(), err)
+					return
+				}
+				*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
+				batchNum++
+				blocks = blocks[:0]
+			}
+		}
+	}
+
+	// Process any remaining blocks
+	if len(blocks) > 0 {
+		if err := handler(blocks, batchNum); err != nil {
+			errCh <- fmt.Errorf("handler failed for final batch %d (blocks %d-%d): %w",
+				batchNum, blocks[0].NumberU64(), blocks[len(blocks)-1].NumberU64(), err)
+			return
+		}
+		*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
+	}
+
+	fmt.Printf("Block batching completed. Total batches: %d, final block: %d\n", batchNum+1, *startBlock-1)
+	close(doneCh)
+}
+
 func processFirehoseBlocksWithClient(
 	client pbfirehose.StreamClient,
 	grpcOpts []grpc.CallOption,
@@ -173,107 +294,16 @@ func processFirehoseBlocksWithClient(
 		return fmt.Errorf("failed to start block stream: %w", err)
 	}
 
-	type seqResponse struct {
-		seq  uint64
-		resp *pbfirehose.Response
-	}
-	type seqBlock struct {
-		seq   uint64
-		block *types.Block
-	}
-
+	// Create channels for the pipeline
 	rawCh := make(chan seqResponse, bufferSize)
 	blockCh := make(chan seqBlock, bufferSize)
 	errCh := make(chan error, 1)
 	doneCh := make(chan struct{})
 
-	// Stage 1: Stream reader goroutine with sequence numbers
-	go func() {
-		defer close(rawCh)
-		var seq uint64
-		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				errCh <- fmt.Errorf("error receiving from stream: %w", err)
-				return
-			}
-			rawCh <- seqResponse{seq: seq, resp: resp}
-			seq++
-		}
-	}()
-
-	// Stage 2: Converter pool
-	var wg sync.WaitGroup
-	wg.Add(workerCount)
-	for i := 0; i < workerCount; i++ {
-		go func() {
-			defer wg.Done()
-			for sr := range rawCh {
-				// Now it's this block's turn
-				ethBlock := &pbeth.Block{}
-				if err := sr.resp.Block.UnmarshalTo(ethBlock); err != nil {
-					fmt.Printf("failed to unmarshal block (seq: %d): %v\n", sr.seq, err)
-					continue
-				}
-				block, err := convertFirehoseBlockToGethBlock(ethBlock, chainID, externalRpc)
-				if err != nil {
-					fmt.Printf("failed to convert block %d: %v\n", ethBlock.Number, err)
-					continue
-				}
-				blockCh <- seqBlock{seq: sr.seq, block: block}
-			}
-		}()
-	}
-
-	// Close blockCh when all workers are done
-	go func() {
-		wg.Wait()
-		close(blockCh)
-	}()
-
-	// Stage 3: Batching and processing in order
-	go func() {
-		var (
-			blocks   []*types.Block
-			batchNum int
-			nextSeq  uint64 = 0
-			buffer          = make(map[uint64]*types.Block)
-		)
-		for sb := range blockCh {
-			buffer[sb.seq] = sb.block
-			// Drain in-order blocks from buffer
-			for {
-				block, ok := buffer[nextSeq]
-				if !ok {
-					break
-				}
-				blocks = append(blocks, block)
-				delete(buffer, nextSeq)
-				nextSeq++
-				if len(blocks) >= batchSize {
-					if err := handler(blocks, batchNum); err != nil {
-						errCh <- err
-						return
-					}
-					*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
-					batchNum++
-					blocks = blocks[:0]
-				}
-			}
-		}
-		// Process any remaining blocks
-		if len(blocks) > 0 {
-			if err := handler(blocks, batchNum); err != nil {
-				errCh <- err
-				return
-			}
-			*startBlock = int(blocks[len(blocks)-1].NumberU64() + 1)
-		}
-		close(doneCh)
-	}()
+	// Start the pipeline stages
+	go streamReader(stream, rawCh, errCh)
+	go blockConverter(rawCh, blockCh, workerCount, chainID, externalRpc)
+	go blockBatcher(blockCh, batchSize, startBlock, handler, errCh, doneCh)
 
 	// Wait for completion or error
 	select {
