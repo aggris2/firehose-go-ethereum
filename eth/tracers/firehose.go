@@ -136,6 +136,7 @@ func NewTracingHooksFromFirehose(tracer *Firehose) *tracing.Hooks {
 type FirehoseConfig struct {
 	ApplyBackwardCompatibility *bool `json:"applyBackwardCompatibility"`
 	ConcurrentBlockFlushing    int   `json:"concurrentBlockFlushing"`
+	TraceBlockWithdrawals      bool  `json:"traceBlockWithdrawals"`
 
 	// Only used for testing, only possible through JSON configuration
 	private *privateFirehoseConfig
@@ -469,6 +470,20 @@ func (f *Firehose) OnBlockStart(event tracing.BlockEvent) {
 
 	if f.block.Header.BaseFeePerGas != nil {
 		f.blockBaseFee = f.block.Header.BaseFeePerGas.Native()
+	}
+
+	if !*f.applyBackwardCompatibility && f.config.TraceBlockWithdrawals {
+		if withdrawals := event.Block.Withdrawals(); withdrawals != nil {
+			f.block.Withdrawals = make([]*pbeth.Withdrawal, len(withdrawals))
+			for i, w := range withdrawals {
+				f.block.Withdrawals[i] = &pbeth.Withdrawal{
+					Index:          w.Index,
+					ValidatorIndex: w.Validator,
+					Address:        w.Address.Bytes(),
+					Amount:         w.Amount,
+				}
+			}
+		}
 	}
 
 	f.blockFinality.populateFromChain(event.Finalized)
