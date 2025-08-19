@@ -209,7 +209,6 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 			t.Run(fmt.Sprintf("%s/%s", model, concurrencyLabel), func(t *testing.T) {
 				config := &tracers.FirehoseConfig{
 					ConcurrentBlockFlushing: concurrent,
-					TraceBlockWithdrawals:   true,
 				}
 
 				if customizeConfig != nil {
