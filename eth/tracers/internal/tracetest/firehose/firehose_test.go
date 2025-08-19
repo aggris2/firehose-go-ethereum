@@ -196,7 +196,7 @@ func TestFirehose_SystemCalls(t *testing.T) {
 	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls", nil)
 }
 
-func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string, customizeConfig func(*tracers.FirehoseConfig)) {
+func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string, customizeConfig func(config *tracers.FirehoseConfig)) {
 	t.Helper()
 
 	for _, concurrent := range []int{0, 1} {
@@ -209,13 +209,12 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 			t.Run(fmt.Sprintf("%s/%s", model, concurrencyLabel), func(t *testing.T) {
 				config := &tracers.FirehoseConfig{
 					ConcurrentBlockFlushing: concurrent,
+					TraceBlockWithdrawals:   true,
 				}
 
 				if customizeConfig != nil {
 					customizeConfig(config)
 				}
-
-				fmt.Println("Running test with config:", config.TraceBlockWithdrawals)
 
 				tracer, tracingHooks, _ := newFirehoseTestTracer(t, model, config)
 
