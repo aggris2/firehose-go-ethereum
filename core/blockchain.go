@@ -2034,8 +2034,8 @@ func (bc *BlockChain) processBlock(parentRoot common.Hash, block *types.Block, s
 	if bc.logger != nil && bc.logger.OnBlockEnd != nil {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				bc.logger.OnBlockEnd(fmt.Errorf("panic during block processing: %v", err))
-				panic(err)
+				bc.logger.OnBlockEnd(fmt.Errorf("panic during block processing: %v", recovered))
+				panic(recovered)
 			} else {
 				bc.logger.OnBlockEnd(blockEndErr)
 			}

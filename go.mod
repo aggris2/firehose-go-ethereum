@@ -63,7 +63,7 @@ require (
 	github.com/status-im/keycard-go v0.2.0
 	github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391
 	github.com/streamingfast/firehose-core v1.9.12
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250807173826-407fc26a6961
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250808201232-da49469285c6
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.14
