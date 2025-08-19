@@ -34,12 +34,13 @@ func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.Fir
 
 	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
 		"concurrentBlockFlushing": %d,
+		"traceBlockWithdrawals": %t,
 		"_private": {
 			"flushToTestBuffer": true,
 			"ignoreGenesisBlock": true,
 			"forcedBackwardCompatibility": %t
 		}
-	}`, config.ConcurrentBlockFlushing, model == tracingModelFirehose2_3)))
+	}`, config.ConcurrentBlockFlushing, config.TraceBlockWithdrawals, model == tracingModelFirehose2_3)))
 	require.NoError(t, err)
 
 	hooks := tracers.NewTracingHooksFromFirehose(tracer)
