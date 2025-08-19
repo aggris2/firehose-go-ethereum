@@ -32,15 +32,22 @@ type firehoseBlockLines []firehoseBlockLine
 func newFirehoseTestTracer(t *testing.T, model tracingModel, config *tracers.FirehoseConfig) (*tracers.Firehose, *tracing.Hooks, func()) {
 	t.Helper()
 
-	tracer, err := tracers.NewFirehoseFromRawJSON([]byte(fmt.Sprintf(`{
-		"concurrentBlockFlushing": %d,
-		"traceBlockWithdrawals": %t,
-		"_private": {
-			"flushToTestBuffer": true,
-			"ignoreGenesisBlock": true,
-			"forcedBackwardCompatibility": %t
-		}
-	}`, config.ConcurrentBlockFlushing, config.TraceBlockWithdrawals, model == tracingModelFirehose2_3)))
+	configJSON, err := json.Marshal(config)
+	require.NoError(t, err)
+
+	var configGenericMap map[string]any
+	require.NoError(t, json.Unmarshal(configJSON, &configGenericMap))
+
+	configGenericMap["_private"] = map[string]any{
+		"flushToTestBuffer":           true,
+		"ignoreGenesisBlock":          true,
+		"forcedBackwardCompatibility": model == tracingModelFirehose2_3,
+	}
+
+	configJSON, err = json.Marshal(configGenericMap)
+	require.NoError(t, err)
+
+	tracer, err := tracers.NewFirehoseFromRawJSON(configJSON)
 	require.NoError(t, err)
 
 	hooks := tracers.NewTracingHooksFromFirehose(tracer)

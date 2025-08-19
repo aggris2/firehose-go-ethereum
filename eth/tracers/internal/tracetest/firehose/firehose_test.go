@@ -2,11 +2,12 @@ package firehose_test
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/eth/tracers"
 	"math/big"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/eth/tracers"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -181,7 +182,7 @@ func TestFirehose_EIP7702(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702")
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestEIP7702", nil)
 }
 
 func TestFirehose_SystemCalls(t *testing.T) {
@@ -192,10 +193,10 @@ func TestFirehose_SystemCalls(t *testing.T) {
 	engine := beacon.New(ethash.NewFaker())
 	_, blocks, _ := core.GenerateChainWithGenesis(gspec, engine, 1, func(i int, b *core.BlockGen) {})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls")
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestSystemCalls", nil)
 }
 
-func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string) {
+func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine consensus.Engine, blocks []*types.Block, goldenDir string, customizeConfig func(config *tracers.FirehoseConfig)) {
 	t.Helper()
 
 	for _, concurrent := range []int{0, 1} {
@@ -209,6 +210,10 @@ func testBlockTracesCorrectly(t *testing.T, genesisSpec *core.Genesis, engine co
 				config := &tracers.FirehoseConfig{
 					ConcurrentBlockFlushing: concurrent,
 					TraceBlockWithdrawals:   true,
+				}
+
+				if customizeConfig != nil {
+					customizeConfig(config)
 				}
 
 				tracer, tracingHooks, _ := newFirehoseTestTracer(t, model, config)
@@ -264,5 +269,7 @@ func TestFirehose_Withdrawals(t *testing.T) {
 		}
 	})
 
-	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals")
+	testBlockTracesCorrectly(t, gspec, engine, blocks, "TestWithdrawals", func(config *tracers.FirehoseConfig) {
+		config.TraceBlockWithdrawals = true
+	})
 }

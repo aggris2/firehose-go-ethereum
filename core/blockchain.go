@@ -1883,6 +1883,7 @@ func (bc *BlockChain) processBlock(block *types.Block, statedb *state.StateDB, s
 	if bc.logger != nil && bc.logger.OnBlockEnd != nil {
 		defer func() {
 			if recovered := recover(); recovered != nil {
+				bc.logger.OnBlockEnd(fmt.Errorf("panic during block processing: %v", recovered))
 				panic(recovered)
 			} else {
 				bc.logger.OnBlockEnd(blockEndErr)

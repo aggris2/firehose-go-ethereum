@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
@@ -409,11 +410,14 @@ func TestFirehose_reorderIsolatedTransactionsAndOrdinals(t *testing.T) {
 				t.Fatalf("the golden file %q does not exist, re-run with 'GOLDEN_UPDATE=true go test ./... -run %q' to generate the initial version", goldenPath, t.Name())
 			}
 
-			content, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
+			unnormalizedContent, err := protojson.MarshalOptions{Indent: "  "}.Marshal(f.block)
 			require.NoError(t, err)
 
 			if goldenUpdate {
-				require.NoError(t, os.WriteFile(goldenPath, content, os.ModePerm))
+				content := normalizedJSON(t, unnormalizedContent)
+
+				require.NoError(t, os.MkdirAll(filepath.Dir(goldenPath), 0755))
+				require.NoError(t, os.WriteFile(goldenPath, content, 0644))
 			}
 
 			expected, err := os.ReadFile(goldenPath)
@@ -543,4 +547,16 @@ func TestMemory_GetPtr(t *testing.T) {
 			assert.Equal(t, tt.want, tt.m.GetPtr(tt.args.offset, tt.args.size))
 		})
 	}
+}
+
+func normalizedJSON(t *testing.T, data []byte) []byte {
+	t.Helper()
+
+	var obj map[string]any
+	require.NoError(t, json.Unmarshal(data, &obj))
+
+	normalized, err := json.MarshalIndent(obj, "", "  ")
+	require.NoError(t, err)
+
+	return normalized
 }
