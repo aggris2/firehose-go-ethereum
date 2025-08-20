@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -19,7 +21,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"strings"
 )
 
 func (api *API) TraceFirehoseBlockByNumber(
@@ -195,6 +196,8 @@ func getGenesisState(db ethdb.Database, blockhash common.Hash) (alloc types.Gene
 		genesis = core.DefaultSepoliaGenesisBlock()
 	case params.HoleskyGenesisHash:
 		genesis = core.DefaultHoleskyGenesisBlock()
+	case params.HoodiGenesisHash:
+		genesis = core.DefaultHoodiGenesisBlock()
 	}
 	if genesis != nil {
 		return genesis.Alloc, nil
