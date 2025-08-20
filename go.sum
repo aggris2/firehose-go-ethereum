@@ -364,8 +364,8 @@ github.com/spiffe/go-spiffe/v2 v2.5.0 h1:N2I01KCUkv1FAjZXJMwh95KK1ZIQLYbPfhaxw8W
 github.com/spiffe/go-spiffe/v2 v2.5.0/go.mod h1:P+NxobPc6wXhVtINNtFjNWGBTreew1GBUCwT2wPmb7g=
 github.com/status-im/keycard-go v0.2.0 h1:QDLFswOQu1r5jsycloeQh3bVU8n/NatHHaZobtDnDzA=
 github.com/status-im/keycard-go v0.2.0/go.mod h1:wlp8ZLbsmrF6g6WjugPAx+IzoLrkdf9+mHxBEeo3Hbg=
-github.com/streamingfast/bstream v0.0.2-0.20250416133616-23bdc92e0e9c h1:cKT8z2bPqAwsw+E00uFWqoXGH+n/aId3qno23qrhDwo=
-github.com/streamingfast/bstream v0.0.2-0.20250416133616-23bdc92e0e9c/go.mod h1:YXtnOZbqcqU4fzGqdi8B7rMcp2iQePQGf4oTIPBnzgc=
+github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140 h1:DA0Eo/Su4j15NH1hMJJb6nXmQCFk6CXLwoDi43IZsIo=
+github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140/go.mod h1:YXtnOZbqcqU4fzGqdi8B7rMcp2iQePQGf4oTIPBnzgc=
 github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391 h1:p2GJ3SQpBUSz3YqLfywIXoK4s07E7tf84HU9qohMUtM=
 github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391/go.mod h1:vwPOUlNHxOVqoPrkyDCpvYvE9FtXnX2bSQe3MvEabT0=
 github.com/streamingfast/firehose-core v1.9.12 h1:NXoSITYoOWcfR56ZYrk653YSEBxQ1vscYkEQRVgJk+k=
