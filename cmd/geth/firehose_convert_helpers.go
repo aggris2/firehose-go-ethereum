@@ -1,9 +1,5 @@
 package main
 
-// This file contains helpers for converting Firehose protobuf blocks to geth blocks.
-// It includes rate limiting for external RPC calls using the standard golang.org/x/time/rate package.
-// The rate limiter starts at 50 calls/second and adapts based on endpoint responses.
-
 import (
 	"context"
 	"fmt"
@@ -458,6 +454,10 @@ func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdraw
 		return nil
 	}
 
+	if externalRpc == "" {
+		return createWithdrawalsFromProtobuf(block)
+	}
+
 	withdrawals := []*types.Withdrawal{}
 	indices, validatorIndices, err := fetchValidatorIndices(externalRpc, block.Number)
 	if err != nil {
@@ -483,4 +483,20 @@ func createWithdrawals(block *pbeth.Block, externalRpc string) []*types.Withdraw
 		}
 	}
 	return withdrawals
+}
+
+func createWithdrawalsFromProtobuf(block *pbeth.Block) []*types.Withdrawal {
+	if len(block.Withdrawals) > 0 {
+		withdrawals := make([]*types.Withdrawal, len(block.Withdrawals))
+		for i, pbWithdrawal := range block.Withdrawals {
+			withdrawals[i] = &types.Withdrawal{
+				Index:     pbWithdrawal.Index,
+				Validator: pbWithdrawal.ValidatorIndex,
+				Address:   common.BytesToAddress(pbWithdrawal.Address),
+				Amount:    pbWithdrawal.Amount,
+			}
+		}
+		return withdrawals
+	}
+	return []*types.Withdrawal{}
 }
