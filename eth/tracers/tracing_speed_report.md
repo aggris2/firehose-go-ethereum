@@ -134,34 +134,34 @@ The observed results are summarized below:
 **Test #1: Full Node Synchronization (No VM Tracing)**
 
 ```
-real    124m12.096s
-user    285m55.942s
-sys     9m44.235s
+real    2h 4min 12s
+user    4h 45min 55s
+sys     9min 44s
 ```
 
 **Test #2: Full Node Synchronization (With VM Tracing)**
 
 ```
-real    1013m5.729s
-user    1481m44.626s
-sys     36m27.299s
+real    16h 53min 5s
+user    24h 41min 44s
+sys     36min 27s
 ```
 
 **Test #3: Import from firehose**
 
 ```
-user 17408.78
-system 553.69
-elapsed 2:18:03 
+elapsed 2h 18min 3s
+user 4h 50min 9s
+system 9min 14s
 CPU 216%
 ```
 
 **Test #4: Archive node poller**
 
 ```
-real    1014m22.485s
-user    15m2.803s
-sys     10m29.421s
+real    16h 54min 22s
+user    15min 2s
+sys     10min 29s
 ```
 
 ### 4.2 Discussion
