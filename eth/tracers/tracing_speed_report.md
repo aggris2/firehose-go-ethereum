@@ -123,6 +123,12 @@ The primary performance metric was synchronization duration, measured using the 
 
 ### 4.1 Results
 
+The specifications of the operating system used for testing are as follows:
+
+Model: Macbook Air \
+Processor: Apple M1 chip \
+Memory: 8 GB
+
 The observed results are summarized below:
 
 **Test #1: Full Node Synchronization (No VM Tracing)**
@@ -152,9 +158,11 @@ CPU 216%
 
 **Test #4: Archive node poller**
 
+```
 real    1014m22.485s
 user    15m2.803s
 sys     10m29.421s
+```
 
 ### 4.2 Discussion
 
