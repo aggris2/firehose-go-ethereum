@@ -351,7 +351,7 @@ func convertFirehoseLogsToGethLogs(pbLogs []*pbeth.Log, pbTx *pbeth.TransactionT
 			TxHash:         common.BytesToHash(pbTx.Hash),
 			TxIndex:        uint(pbTx.Index),
 			BlockHash:      common.BytesToHash(pbBlock.Header.Hash),
-			BlockTimestamp: uint64(pbBlock.Header.Timestamp.Seconds),
+			// The branch release/geth-1.x-fh3.0 contains  BlockTimestamp
 			Index:          uint(pbLog.Index),
 			Removed:        false,
 		}
