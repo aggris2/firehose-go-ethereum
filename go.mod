@@ -27,7 +27,7 @@ require (
 	github.com/ethereum/c-kzg-4844/v2 v2.1.0
 	github.com/ethereum/go-verkle v0.2.2
 	github.com/fatih/color v1.16.0
-	github.com/ferranbt/fastssz v0.1.2
+	github.com/ferranbt/fastssz v0.1.4
 	github.com/fjl/gencodec v0.1.0
 	github.com/fsnotify/fsnotify v1.6.0
 	github.com/gballet/go-libpcsclite v0.0.0-20190607065134-2772fd86a8ff
@@ -115,6 +115,7 @@ require (
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
+	github.com/emicklei/dot v1.6.2 // indirect
 	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.4 // indirect
