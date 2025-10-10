@@ -7,6 +7,12 @@ on:
     branches:
       - "firehose-fh3.0"
       - "release/*"
+  workflow_dispatch:
+    inputs:
+      firehose_ethereum:
+        description: "Firehose Ethereum version"
+        required: false
+        default: "latest"
 
 env:
   REGISTRY: ghcr.io
@@ -88,7 +94,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
           build-args: |
-            FIREHOSE_ETHEREUM=latest
+            FIREHOSE_ETHEREUM=${{ inputs.firehose_ethereum || 'latest' }}
 
   push:
     needs: build
