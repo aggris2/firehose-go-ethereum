@@ -102,7 +102,8 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		if err != nil {
 			return nil, fmt.Errorf("failed to create header chain: %w", err)
 		}
-		processor := core.NewStateProcessor(api.backend.ChainConfig(), headerChain)
+
+		processor := core.NewStateProcessor(headerChain)
 		vmConfig := vm.Config{Tracer: hooks}
 		_, err = processor.Process(block, statedb, vmConfig)
 		if err != nil {
@@ -117,7 +118,7 @@ func (api *API) traceFirehoseBlock(ctx context.Context, block *types.Block, conf
 		return nil, errors.New("testing buffer is not available")
 	}
 
-	respStr := string(firehoseTracer.testingBuffer.Bytes())
+	respStr := firehoseTracer.testingBuffer.String()
 	lines := strings.Split(respStr, "\n")
 
 	var fireBlockLine string
