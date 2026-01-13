@@ -1,3 +1,7 @@
+## geth-v1.16.8-fh3.0
+
+* Bump to geth [1.16.8](https://github.com/ethereum/go-ethereum/releases/tag/v1.16.8)
+
 ## geth-v1.16.7-fh3.0
 
 * Bump to geth [1.16.7](https://github.com/ethereum/go-ethereum/releases/tag/v1.16.7), adjusted some of tracing changes made there to keep Firehose 3.0 model compatibility around `CodeChange`.
