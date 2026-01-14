@@ -61,7 +61,8 @@ func (st *insertStats) report(chain []*types.Block, index int, snapDiffItems, sn
 			"blocks", st.processed, "txs", txs, "mgas", float64(st.usedGas) / 1000000,
 			"elapsed", common.PrettyDuration(elapsed), "mgasps", mgasps,
 		}
-		if timestamp := time.Unix(int64(end.Time()), 0); time.Since(timestamp) > time.Minute {
+		// Firehose: always show age for easier debugging of head latency issue (against block's timestamp)
+		if timestamp := time.Unix(int64(end.Time()), 0); true || time.Since(timestamp) > time.Minute {
 			context = append(context, []interface{}{"age", common.PrettyAge(timestamp)}...)
 		}
 		if snapDiffItems != 0 || snapBufItems != 0 { // snapshots enabled
