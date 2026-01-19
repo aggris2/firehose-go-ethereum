@@ -1,6 +1,6 @@
 module github.com/ethereum/go-ethereum
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.2.0
@@ -23,6 +23,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
 	github.com/donovanhide/eventsource v0.0.0-20210830082556-c59027999da0
 	github.com/dop251/goja v0.0.0-20230605162241-28ee0ee714f3
+	github.com/emmansun/base64 v0.8.0
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5
 	github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab
 	github.com/ethereum/go-verkle v0.2.2
@@ -63,7 +64,7 @@ require (
 	github.com/streamingfast/bstream v0.0.2-0.20250505155336-473e82240140
 	github.com/streamingfast/dgrpc v0.0.0-20250423172640-223250ed2391
 	github.com/streamingfast/firehose-core v1.9.12
-	github.com/streamingfast/firehose-ethereum/types v0.0.0-20250808201232-da49469285c6
+	github.com/streamingfast/firehose-ethereum/types v0.0.0-20260119150111-65c739f81608
 	github.com/streamingfast/pbgo v0.0.6-0.20250114182320-0b43084f4000
 	github.com/stretchr/testify v1.10.0
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe
@@ -74,7 +75,7 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/sync v0.13.0
-	golang.org/x/sys v0.36.0
+	golang.org/x/sys v0.38.0
 	golang.org/x/text v0.24.0
 	golang.org/x/time v0.11.0
 	golang.org/x/tools v0.29.0
