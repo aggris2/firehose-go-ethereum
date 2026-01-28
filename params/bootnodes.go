@@ -45,6 +45,34 @@ var HoleskyBootnodes = []string{
 	"enode://a3435a0155a3e837c02f5e7f5662a2f1fbc25b48e4dc232016e1c51b544cb5b4510ef633ea3278c0e970fa8ad8141e2d4d0f9f95456c537ff05fdf9b31c15072@178.128.136.233:30303",
 }
 
+// PulseChainBootnodes are the enode URLs of the P2P bootstrap nodes running on
+// the main PulseChain network.
+var PulseChainBootnodes = []string{
+	"enode://bdb96e7ff6607414a4be8cdc8458861e9c22a25a0c254c7bb9c9c8423912e998b59e7ba012801538480eb78cec4d6766ab0b379d0b60356de84a7cdaec988c0b@5.9.124.244:30303",     // bootnode-001-hetzner-fsn
+	"enode://d69f8d28804ab34f7d5e20ac8bd4940412602787e2c37fc3600adc60dcd5d0a52e1fe1baccbefb6e278e1ee59fcb099c45db242edeb5e0a4547ff971218a0592@148.251.54.222:30303",  // bootnode-002-hetzner-fsn
+	"enode://1c9e030aa44b95b8239e1c97926787e12770c015b9dbf7a89b1178a5f4fab02462fde3489662119872dad5998e23440f78daae753d7a8f800900d871f08650a4@65.108.236.231:30303",  // bootnode-003-hetzner-hel
+	"enode://95097eaeda4118297ad0ccb6160e1c9188af7560d25b4724052e0f004a33aaddb0e468103d622c77539b692fd1d9f3c156cb76c9ea402a86e3170d6ae60092e7@135.181.212.228:30303", // bootnode-004-hetzner-hel
+	"enode://da30ab2475cda64c2454b659a3ef045884c7d02b97d524d710020fdc2f37192b0aac7992bca8b7afd57474eb477e95567c8e0fe98003b779834f265304376c3c@135.181.229.180:30303", // bootnode-001 maintained by www.g4mm4.io
+	"enode://01d93871155cbe270bc60acfebc1aa859aacce002acaac39d633aa8e7c186ee26d19a41a50d8bc094c025a546ae5e1a38dc21ead75b4e7ddf4e917988d2f7c74@46.4.224.159:30303",    // bootnode-002 maintained by www.g4mm4.io
+	"enode://96367e5e533cde68b6d3e7cc5308901fb1e4b1df51d2a0442df365fcfb8ba27a6e8bcde44b3629579da9e13d819f6059386a1e81ea4c5fd10d14599639c16214@46.4.224.160:30303",    // bootnode-003 maintained by www.g4mm4.io
+	"enode://aece632270d66ff6bf9e9528e766b5829fb3b7812d48e4934c2768c45976b5f98559ce6d5763dc16d4351b15e776b55e2b983a0c367bdbe6279cfb3242f2587e@95.217.148.233:30303",  // bootnode-004 maintained by www.g4mm4.io
+	"enode://95e1761e526d77fc732416a31c9c1795863b557ea02880101c01d14d13fdabb9312ce45c4f3037ad88002815f6826a36d86e42a1a7122f9188c64f53c4b68b1e@148.251.185.52:30303",  // bootnode-005 maintained by www.g4mm4.io
+	"enode://0ad3bc059105b0cbc1d30a330f79b4fd4ef40f37782194daa6d3412a29a69e0190dd246fc019be9157a4bf095b584ab7874beba4c71c02156f602f32ff389f00@138.201.220.52:30303",  // bootnode-006 maintained by www.g4mm4.io
+}
+
+// PulseChainTestnetV4Bootnodes are the enode URLs of the P2P bootstrap nodes running on
+// the PulseChain Testnet V4 network.
+var PulseChainTestnetV4Bootnodes = []string{
+	"enode://3edb6b2b76ef50af30d3b02e098f00546f1a460ff1c82adad2639a57f6742c69516d24d760c0dd4555334adb01e6f3327f1a61056b3d89db4de10060248e8dea@65.21.204.190:30303",   // bootnode-001-hetzner-hel
+	"enode://2b9af9cc9d09e2d2ef8cb3203f859e69b0175c1d7c41e14acf5162b239a773a966eea98a71999af9424ddb5b27a44759318869f8a4ba954483889aafdd6ea921@157.90.129.118:30303",  // bootnode-002-hetzner-fsn
+	"enode://2181f1b061713260eb806a7824d880088bbf3b47cf60fa7bc610439aedd20c213479df83a6eeaf42b41ad6f3eac6973ddc1d8d903a00094603ad667d5d87161f@37.27.57.158:30303",    // bootnode-001 maintained by www.g4mm4.io
+	"enode://c1a8bc7b4a7fa66e3eed6732d966f98de6b4e4243353e9c2f4d632126b8da73022b3becf1582e940d3feeaf3243f63304356856053c76a7ea6cc5c50ad21d483@213.133.100.132:30303", // bootnode-002 maintained by www.g4mm4.io
+	"enode://7dce6f27d102ae4fac47042b0ed8fadfce0037a5384ae171017b8b6684efe57bb850359e00582a6f8099ac60b41e16efe46afb8772270e5e1cad3f7ed79d0e41@85.10.193.180:30303",   // bootnode-003 maintained by www.g4mm4.io
+	"enode://94eedc89cebf735374bbae8078fff23744d7b118af6c0f33804d1ccf6cc8fdb9db7f55ccf81455034bc34b43f00fdc7ea5693b86d6c6098fc9603f689d0d1fca@95.217.150.118:30303",  // bootnode-004 maintained by www.g4mm4.io
+	"enode://5999295986a65151d416dc09635da46896e8cd5e2f0dda0823ed3a0981dc50885407e5a990aa34e165c345e7bebaa837fcf9afaaa5e62d5add1fed6d4c9edbcc@95.217.148.234:30303",  // bootnode-005 maintained by www.g4mm4.io
+	"enode://86831392545cec45fa30b578717684c4ffcf2e2bf050d4ecfdd5b9a6b2136e10d58f8606bacdd137e6ce68c1081442e39347ed391f166366f4951ab031156e93@138.201.193.233:30303", // bootnode-006 maintained by www.g4mm4.io
+}
+
 // SepoliaBootnodes are the enode URLs of the P2P bootstrap nodes running on the
 // Sepolia test network.
 var SepoliaBootnodes = []string{
@@ -79,16 +107,27 @@ var V5Bootnodes = []string{
 	"enr:-LK4QKWrXTpV9T78hNG6s8AM6IO4XH9kFT91uZtFg1GcsJ6dKovDOr1jtAAFPnS2lvNltkOGA9k29BUN7lFh_sjuc9QBh2F0dG5ldHOIAAAAAAAAAACEZXRoMpC1MD8qAAAAAP__________gmlkgnY0gmlwhANAdd-Jc2VjcDI1NmsxoQLQa6ai7y9PMN5hpLe5HmiJSlYzMuzP7ZhwRiwHvqNXdoN0Y3CCI4yDdWRwgiOM", // 3.64.117.223 | aws-eu-central-1-frankfurt}
 }
 
-const dnsPrefix = "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@"
-
 // KnownDNSNetwork returns the address of a public DNS-based node list for the given
 // genesis hash and protocol. See https://github.com/ethereum/discv4-dns-lists for more
 // information.
-func KnownDNSNetwork(genesis common.Hash, protocol string) string {
+func KnownDNSNetwork(genesis common.Hash, networkId uint64, protocol string) string {
 	var net string
+	var dnsPrefix = "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@"
+	var tld = ".ethdisco.net"
+
+	if networkId == PulseChainConfig.ChainID.Uint64() || networkId == PulseChainTestnetV4Config.ChainID.Uint64() {
+		tld = ".pulsedisco.net"
+		dnsPrefix = "enrtree://APFXO36RU3TWV7XFGWI2TYF5IDA3WM2GPTRL3TCZINWHZX4R6TAOK@"
+	}
+
 	switch genesis {
 	case MainnetGenesisHash:
-		net = "mainnet"
+		switch networkId {
+		case PulseChainTestnetV4Config.ChainID.Uint64():
+			net = "testnet-v4"
+		default:
+			net = "mainnet"
+		}
 	case SepoliaGenesisHash:
 		net = "sepolia"
 	case HoleskyGenesisHash:
@@ -98,5 +137,5 @@ func KnownDNSNetwork(genesis common.Hash, protocol string) string {
 	default:
 		return ""
 	}
-	return dnsPrefix + protocol + "." + net + ".ethdisco.net"
+	return dnsPrefix + protocol + "." + net + tld
 }

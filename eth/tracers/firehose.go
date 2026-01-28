@@ -208,6 +208,7 @@ type Firehose struct {
 	transaction          *pbeth.TransactionTrace
 	transactionLogIndex  uint32
 	inSystemCall         bool
+	inFinalization       bool
 	transactionIsolated  bool
 	transactionTransient *pbeth.TransactionTrace
 
@@ -338,6 +339,7 @@ func (f *Firehose) resetTransaction() {
 	f.evm = nil
 	f.transactionLogIndex = 0
 	f.inSystemCall = false
+	f.inFinalization = false
 	f.transactionTransient = nil
 
 	f.callStack.Reset()
@@ -530,6 +532,13 @@ func (f *Firehose) OnBlockEnd(err error) {
 	firehoseInfo("block ending (err=%s)", errorView(err))
 
 	if err == nil {
+		// Handle any pending finalization system call
+		if f.inSystemCall && f.transaction != nil {
+			firehoseTrace("ending finalization system call")
+			f.block.SystemCalls = append(f.block.SystemCalls, f.transaction.Calls...)
+			f.resetTransaction()
+		}
+
 		if f.blockReorderOrdinal {
 			f.reorderIsolatedTransactionsAndOrdinals()
 		}
@@ -1668,6 +1677,19 @@ func (f *Firehose) newCodeChange(addr common.Address, prevCodeHash common.Hash, 
 
 func (f *Firehose) OnStorageChange(a common.Address, k, prev, new common.Hash) {
 	firehoseTrace("storage changed (address=%s key=%s, before=%s after=%s)", shortAddressView(&a), k, prev, new)
+
+	// Handle storage changes during block finalization (e.g., PrimordialPulse fork)
+	// These occur outside of transaction context, so we need to create a system call
+	if f.block != nil && f.transaction == nil && !f.callStack.HasActiveCall() {
+		firehoseTrace("storage change during finalization, creating system call context")
+
+		// Start a system call to track finalization state changes
+		f.inSystemCall = true
+		f.transaction = &pbeth.TransactionTrace{}
+
+		// Create a pseudo-call for finalization storage changes
+		f.callStart("finalization", pbeth.CallType_CALL, params.SystemAddress, a, nil, 0, nil)
+	}
 
 	f.ensureInBlockAndInTrxAndInCall()
 

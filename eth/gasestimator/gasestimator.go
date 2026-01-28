@@ -88,6 +88,8 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 	} else {
 		feeCap = common.Big0
 	}
+	// Track the maximum gas based on the account's available funds and the txn feeCap.
+	var accountGasLimit uint64
 	// Recap the highest gas limit with account's available balance.
 	if feeCap.BitLen() != 0 {
 		balance := opts.State.GetBalance(call.From).ToBig()
@@ -112,14 +114,17 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 		allowance := new(big.Int).Div(available, feeCap)
 
 		// If the allowance is larger than maximum uint64, skip checking
-		if allowance.IsUint64() && hi > allowance.Uint64() {
-			transfer := call.Value
-			if transfer == nil {
-				transfer = new(big.Int)
+		if allowance.IsUint64() {
+			accountGasLimit = allowance.Uint64()
+			if hi > allowance.Uint64() {
+				transfer := call.Value
+				if transfer == nil {
+					transfer = new(big.Int)
+				}
+				log.Debug("Gas estimation capped by limited funds", "original", hi, "balance", balance,
+					"sent", transfer, "maxFeePerGas", feeCap, "fundable", allowance)
+				hi = allowance.Uint64()
 			}
-			log.Debug("Gas estimation capped by limited funds", "original", hi, "balance", balance,
-				"sent", transfer, "maxFeePerGas", feeCap, "fundable", allowance)
-			hi = allowance.Uint64()
 		}
 	}
 	// Recap the highest gas allowance with specified gascap.
@@ -127,6 +132,17 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 		log.Debug("Caller gas above allowance, capping", "requested", hi, "cap", gasCap)
 		hi = gasCap
 	}
+
+	// Adds a 20% pad to the estimated gas usage, not exceeding account gas limit
+	// to help mitigate gas underestimations
+	padResult := func(gas uint64) uint64 {
+		gas = gas + gas/5
+		if accountGasLimit != 0 && gas > accountGasLimit {
+			gas = accountGasLimit
+		}
+		return gas
+	}
+
 	// If the transaction is a plain value transfer, short circuit estimation and
 	// directly try 21000. Returning 21000 without any execution is dangerous as
 	// some tx field combos might bump the price up even for plain transfers (e.g.
@@ -135,7 +151,7 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 		if call.To != nil && opts.State.GetCodeSize(*call.To) == 0 {
 			failed, _, err := execute(ctx, call, opts, params.TxGas)
 			if !failed && err == nil {
-				return params.TxGas, nil, nil
+				return padResult(params.TxGas), nil, nil
 			}
 		}
 	}
@@ -207,7 +223,7 @@ func Estimate(ctx context.Context, call *core.Message, opts *Options, gasCap uin
 			hi = mid
 		}
 	}
-	return hi, nil, nil
+	return padResult(hi), nil, nil
 }
 
 // execute is a helper that executes the transaction under a given gas limit and

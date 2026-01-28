@@ -139,6 +139,51 @@ func TestDifficultyCalculators(t *testing.T) {
 	}
 }
 
+func TestPulseChainTTDOffset(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID:              big.NewInt(369),
+		PrimordialPulseBlock: big.NewInt(100),
+		HomesteadBlock:       big.NewInt(0),
+		GrayGlacierBlock:     big.NewInt(0),
+	}
+
+	parentHeader := &types.Header{
+		Number:     big.NewInt(98),
+		Time:       1000,
+		Difficulty: big.NewInt(1000000),
+	}
+
+	tests := []struct {
+		name         string
+		parentNumber int64
+		expectTTD    bool
+	}{
+		{"parent block 99 (next=100=PrimordialPulseBlock)", 99, true},
+		{"parent block 98 (next=99, before fork)", 98, false},
+		{"parent block 100 (next=101, after fork)", 100, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := &types.Header{
+				Number:     big.NewInt(tt.parentNumber),
+				Time:       parentHeader.Time,
+				Difficulty: parentHeader.Difficulty,
+			}
+			diff := CalcDifficulty(config, parent.Time+12, parent)
+			if tt.expectTTD {
+				if diff.Cmp(params.PulseChainTTDOffset) != 0 {
+					t.Errorf("expected PulseChainTTDOffset (%d), got %d", params.PulseChainTTDOffset, diff)
+				}
+			} else {
+				if diff.Cmp(params.PulseChainTTDOffset) == 0 {
+					t.Errorf("did not expect PulseChainTTDOffset at parent block %d", tt.parentNumber)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkDifficultyCalculator(b *testing.B) {
 	x1 := makeDifficultyCalculator(big.NewInt(1000000))
 	x2 := MakeDifficultyCalculatorU256(big.NewInt(1000000))

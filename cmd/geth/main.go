@@ -295,6 +295,9 @@ func main() {
 func prepare(ctx *cli.Context) {
 	// If we're running a known preset, log it for convenience.
 	switch {
+	case ctx.IsSet(utils.PulseChainFlag.Name):
+		log.Info("Starting Geth on PulseChain mainnet...")
+
 	case ctx.IsSet(utils.SepoliaFlag.Name):
 		log.Info("Starting Geth on Sepolia testnet...")
 
@@ -303,6 +306,9 @@ func prepare(ctx *cli.Context) {
 
 	case ctx.IsSet(utils.HoodiFlag.Name):
 		log.Info("Starting Geth on Hoodi testnet...")
+
+	case ctx.IsSet(utils.PulseChainTestnetV4Flag.Name):
+		log.Info("Starting Geth on PulseChain Testnet V4...")
 
 	case !ctx.IsSet(utils.NetworkIdFlag.Name):
 		log.Info("Starting Geth on Ethereum mainnet...")
@@ -314,7 +320,7 @@ func prepare(ctx *cli.Context) {
 			!ctx.IsSet(utils.SepoliaFlag.Name) &&
 			!ctx.IsSet(utils.HoodiFlag.Name) &&
 			!ctx.IsSet(utils.DeveloperFlag.Name) {
-			// Nope, we're really on mainnet. Bump that cache up!
+			// Nope, we're really on mainnet or PulseChain. Bump that cache up!
 			log.Info("Bumping default cache on mainnet", "provided", ctx.Int(utils.CacheFlag.Name), "updated", 4096)
 			ctx.Set(utils.CacheFlag.Name, strconv.Itoa(4096))
 		}

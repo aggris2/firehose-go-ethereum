@@ -377,6 +377,16 @@ func SetupGenesisBlockWithOverride(db ethdb.Database, triedb *triedb.Database, g
 		return nil, common.Hash{}, nil, err
 	}
 
+	// Added: Support custom config for PrimordialPulse fork with mainnet genesis
+	// and non-standard chain id.
+	if genesis == nil && (storedCfg.PrimordialPulseBlock != nil ||
+		ghash != params.MainnetGenesisHash) {
+		newCfg = storedCfg
+		if err := overrides.apply(newCfg); err != nil {
+			return nil, common.Hash{}, nil, err
+		}
+	}
+
 	// Sanity-check the new configuration.
 	if err := newCfg.CheckConfigForkOrder(); err != nil {
 		return nil, common.Hash{}, nil, err
@@ -435,10 +445,39 @@ func LoadChainConfig(db ethdb.Database, genesis *Genesis) (cfg *params.ChainConf
 // object is null, it returns the default chain configuration based on the given
 // genesis hash, or the locally stored config if it's not a pre-defined network.
 func (g *Genesis) chainConfigOrDefault(ghash common.Hash, stored *params.ChainConfig) *params.ChainConfig {
+	// Add debug logging at function entry
+	log.Info("Determining chain config",
+		"genesis", g != nil,
+		"ghash", ghash.Hex(),
+		"mainnetHash", params.MainnetGenesisHash.Hex(),
+		"storedConfig", stored != nil)
+
 	switch {
 	case g != nil:
+		log.Info("Using provided genesis config", "chainID", g.Config.ChainID)
 		return g.Config
 	case ghash == params.MainnetGenesisHash:
+		log.Info("Genesis hash matches mainnet hash, checking for PulseChain config")
+		// Added PulseChain handling - check chain ID if stored config exists
+		if stored != nil {
+			chainId := stored.ChainID.Uint64()
+			log.Info("Checking stored chain ID for PulseChain",
+				"storedChainID", chainId,
+				"pulseChainID", params.PulseChainConfig.ChainID.Uint64(),
+				"pulseTestnetID", params.PulseChainTestnetV4Config.ChainID.Uint64())
+
+			switch chainId {
+			case params.PulseChainConfig.ChainID.Uint64():
+				log.Info("Found PulseChain config from stored chain ID", "chainID", chainId)
+				return params.PulseChainConfig
+			case params.PulseChainTestnetV4Config.ChainID.Uint64():
+				log.Info("Found PulseChain Testnet V4 config from stored chain ID", "chainID", chainId)
+				return params.PulseChainTestnetV4Config
+			}
+		} else {
+			log.Debug("No stored config available to determine PulseChain")
+		}
+		// Default to mainnet config if no specific chain ID match
 		return params.MainnetChainConfig
 	case ghash == params.HoleskyGenesisHash:
 		return params.HoleskyChainConfig
@@ -620,6 +659,18 @@ func DefaultGenesisBlock() *Genesis {
 	}
 }
 
+// DefaultPulseChainGenesisBlock returns the PulseChain mainnet genesis block.
+func DefaultPulseChainGenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.PulseChainConfig,
+		Nonce:      66,
+		ExtraData:  hexutil.MustDecode("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
+		GasLimit:   5000,
+		Difficulty: big.NewInt(17179869184),
+		Alloc:      decodePrealloc(mainnetAllocData),
+	}
+}
+
 // DefaultSepoliaGenesisBlock returns the Sepolia network genesis block.
 func DefaultSepoliaGenesisBlock() *Genesis {
 	return &Genesis{
@@ -654,6 +705,18 @@ func DefaultHoodiGenesisBlock() *Genesis {
 		Difficulty: big.NewInt(0x01),
 		Timestamp:  1742212800,
 		Alloc:      decodePrealloc(hoodiAllocData),
+	}
+}
+
+// DefaultPulseChainTestnetV4GenesisBlock returns the PulseChain Testnet V4 genesis block.
+func DefaultPulseChainTestnetV4GenesisBlock() *Genesis {
+	return &Genesis{
+		Config:     params.PulseChainTestnetV4Config,
+		Nonce:      66,
+		ExtraData:  hexutil.MustDecode("0x11bbe8db4e347b4e8c937c1c8370e4b5ed33adb3db69cbdb7a38e1e50b1b82fa"),
+		GasLimit:   5000,
+		Difficulty: big.NewInt(17179869184),
+		Alloc:      decodePrealloc(mainnetAllocData),
 	}
 }
 

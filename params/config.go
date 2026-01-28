@@ -491,6 +491,10 @@ type ChainConfig struct {
 	Ethash             *EthashConfig       `json:"ethash,omitempty"`
 	Clique             *CliqueConfig       `json:"clique,omitempty"`
 	BlobScheduleConfig *BlobScheduleConfig `json:"blobSchedule,omitempty"`
+
+	// PulseChain modifications
+	PrimordialPulseBlock *big.Int  `json:"primordialPulseBlock,omitempty"` // PrimordialPulseBlock switch block (nil = no fork, 0 = already activated)
+	Treasury             *Treasury `json:"treasury,omitempty"`             // An optional treasury which will receive allocations during the PrimordialPulseBlock
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -647,6 +651,9 @@ func (c *ChainConfig) Description() string {
 	}
 	if c.GrayGlacierBlock != nil {
 		banner += fmt.Sprintf(" - Gray Glacier:                #%-8v\n", c.GrayGlacierBlock)
+	}
+	if c.PrimordialPulseBlock != nil {
+		banner += fmt.Sprintf(" - Primordial Pulse:            #%-8v (https://gitlab.com/pulsechaincom/go-pulse)\n", c.PrimordialPulseBlock)
 	}
 	banner += "\n"
 
@@ -818,7 +825,15 @@ func (c *ChainConfig) IsPostMerge(blockNum uint64, timestamp uint64) bool {
 
 // IsShanghai returns whether time is either equal to the Shanghai fork time or greater.
 func (c *ChainConfig) IsShanghai(num *big.Int, time uint64) bool {
-	return c.IsLondon(num) && isTimestampForked(c.ShanghaiTime, time)
+	if !c.IsLondon(num) {
+		return false
+	}
+	if c.PrimordialPulseAhead(num) {
+		// If the PrimordialPulse fork is ahead,
+		// compare with the Ethereum Mainnet Shanghai time.
+		return 1681338455 <= time
+	}
+	return isTimestampForked(c.ShanghaiTime, time)
 }
 
 // IsCancun returns whether time is either equal to the Cancun fork time or greater.
@@ -869,6 +884,17 @@ func (c *ChainConfig) IsAmsterdam(num *big.Int, time uint64) bool {
 // IsVerkle returns whether time is either equal to the Verkle fork time or greater.
 func (c *ChainConfig) IsVerkle(num *big.Int, time uint64) bool {
 	return c.IsLondon(num) && isTimestampForked(c.VerkleTime, time)
+}
+
+// IsPrimordialPulseBlock returns whether or not the given block is the primordial pulse block.
+func (c *ChainConfig) IsPrimordialPulseBlock(num *big.Int) bool {
+	// Returns whether or not the given block is the PrimordialPulseBlock.
+	return c.PrimordialPulseBlock != nil && c.PrimordialPulseBlock.Cmp(num) == 0
+}
+
+// Returns true if there is a PrimordialPulse block in the future.
+func (c *ChainConfig) PrimordialPulseAhead(num *big.Int) bool {
+	return c.PrimordialPulseBlock != nil && c.PrimordialPulseBlock.Cmp(num) > 0
 }
 
 // IsVerkleGenesis checks whether the verkle fork is activated at the genesis block.
@@ -1055,7 +1081,8 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, headNumber *big.Int, 
 	if isForkBlockIncompatible(c.EIP158Block, newcfg.EIP158Block, headNumber) {
 		return newBlockCompatError("EIP158 fork block", c.EIP158Block, newcfg.EIP158Block)
 	}
-	if c.IsEIP158(headNumber) && !configBlockEqual(c.ChainID, newcfg.ChainID) {
+	// allow mismatching ChainID if there is a PrimordialPulse block ahead
+	if c.IsEIP158(headNumber) && !configBlockEqual(c.ChainID, newcfg.ChainID) && !newcfg.PrimordialPulseAhead(headNumber) {
 		return newBlockCompatError("EIP158 chain ID", c.EIP158Block, newcfg.EIP158Block)
 	}
 	if isForkBlockIncompatible(c.ByzantiumBlock, newcfg.ByzantiumBlock, headNumber) {
@@ -1092,6 +1119,10 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, headNumber *big.Int, 
 	if isForkBlockIncompatible(c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock, headNumber) {
 		return newBlockCompatError("Merge netsplit fork block", c.MergeNetsplitBlock, newcfg.MergeNetsplitBlock)
 	}
+	// allow mismatching Shanghai time if we're on the PrimordialPulse block or if there is a PrimordialPulse block ahead
+	if isForkTimestampIncompatible(c.ShanghaiTime, newcfg.ShanghaiTime, headTimestamp) && !newcfg.IsPrimordialPulseBlock(headNumber) && !newcfg.PrimordialPulseAhead(headNumber) {
+		return newTimestampCompatError("Shanghai fork timestamp", c.ShanghaiTime, newcfg.ShanghaiTime)
+	}
 	if isForkTimestampIncompatible(c.ShanghaiTime, newcfg.ShanghaiTime, headTimestamp) {
 		return newTimestampCompatError("Shanghai fork timestamp", c.ShanghaiTime, newcfg.ShanghaiTime)
 	}
@@ -1124,6 +1155,9 @@ func (c *ChainConfig) checkCompatible(newcfg *ChainConfig, headNumber *big.Int, 
 	}
 	if isForkTimestampIncompatible(c.AmsterdamTime, newcfg.AmsterdamTime, headTimestamp) {
 		return newTimestampCompatError("Amsterdam fork timestamp", c.AmsterdamTime, newcfg.AmsterdamTime)
+	}
+	if isForkBlockIncompatible(c.PrimordialPulseBlock, newcfg.PrimordialPulseBlock, headNumber) {
+		return newBlockCompatError("PrimordialPulse fork block", c.PrimordialPulseBlock, newcfg.PrimordialPulseBlock)
 	}
 	return nil
 }

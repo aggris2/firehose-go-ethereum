@@ -40,17 +40,24 @@ type sigCache struct {
 // MakeSigner returns a Signer based on the given chain config and block number.
 func MakeSigner(config *params.ChainConfig, blockNumber *big.Int, blockTime uint64) Signer {
 	var signer Signer
+
+	chainID := config.ChainID
+	if config.PrimordialPulseAhead(blockNumber) {
+		// Use ethereum mainnet chainid for pre-fork transactions
+		chainID = big.NewInt(1)
+	}
+
 	switch {
 	case config.IsPrague(blockNumber, blockTime):
 		signer = NewPragueSigner(config.ChainID)
 	case config.IsCancun(blockNumber, blockTime):
-		signer = NewCancunSigner(config.ChainID)
+		signer = NewCancunSigner(chainID)
 	case config.IsLondon(blockNumber):
-		signer = NewLondonSigner(config.ChainID)
+		signer = NewLondonSigner(chainID)
 	case config.IsBerlin(blockNumber):
-		signer = NewEIP2930Signer(config.ChainID)
+		signer = NewEIP2930Signer(chainID)
 	case config.IsEIP155(blockNumber):
-		signer = NewEIP155Signer(config.ChainID)
+		signer = NewEIP155Signer(chainID)
 	case config.IsHomestead(blockNumber):
 		signer = HomesteadSigner{}
 	default:

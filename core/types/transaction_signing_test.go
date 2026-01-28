@@ -200,3 +200,54 @@ func Benchmark_modernSigner_Equal(b *testing.B) {
 		}
 	}
 }
+
+func TestPulseChainSignerChainID(t *testing.T) {
+	config := &params.ChainConfig{
+		ChainID:              big.NewInt(369),
+		PrimordialPulseBlock: big.NewInt(100),
+		HomesteadBlock:       big.NewInt(0),
+		EIP155Block:          big.NewInt(0),
+		LondonBlock:          big.NewInt(0),
+	}
+
+	tests := []struct {
+		name            string
+		blockNumber     *big.Int
+		expectedChainID int64
+	}{
+		{"before PrimordialPulseBlock", big.NewInt(50), 1},
+		{"at PrimordialPulseBlock", big.NewInt(100), 369},
+		{"after PrimordialPulseBlock", big.NewInt(150), 369},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			signer := MakeSigner(config, tt.blockNumber, 0)
+			if got := signer.ChainID(); got.Cmp(big.NewInt(tt.expectedChainID)) != 0 {
+				t.Errorf("MakeSigner at block %s: got ChainID %s, want %d",
+					tt.blockNumber, got, tt.expectedChainID)
+			}
+		})
+	}
+
+	// Verify round-trip: sign and recover sender
+	t.Run("sign and recover", func(t *testing.T) {
+		key, _ := crypto.GenerateKey()
+		addr := crypto.PubkeyToAddress(key.PublicKey)
+
+		for _, tt := range tests {
+			signer := MakeSigner(config, tt.blockNumber, 0)
+			tx, err := SignTx(NewTransaction(0, common.Address{}, big.NewInt(0), 0, big.NewInt(0), nil), signer, key)
+			if err != nil {
+				t.Fatalf("block %s: SignTx failed: %v", tt.blockNumber, err)
+			}
+			recovered, err := Sender(signer, tx)
+			if err != nil {
+				t.Fatalf("block %s: Sender failed: %v", tt.blockNumber, err)
+			}
+			if recovered != addr {
+				t.Errorf("block %s: recovered %s, want %s", tt.blockNumber, recovered, addr)
+			}
+		}
+	})
+}

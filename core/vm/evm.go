@@ -137,12 +137,23 @@ type EVM struct {
 // state transition of a block, with the transaction context switched as
 // needed by calling evm.SetTxContext.
 func NewEVM(blockCtx BlockContext, statedb StateDB, chainConfig *params.ChainConfig, config Config) *EVM {
+	// FlexChainConfig allows for processing prefork transactions on PulseChain
+	flexChainConfig := chainConfig
+	if chainConfig.PrimordialPulseAhead(blockCtx.BlockNumber) {
+		// Create a shallow of chainConfig struct and set to ethereum mainnet
+		chainCfgCpy := *chainConfig
+		chainCfgCpy.ChainID = big.NewInt(1)
+
+		// Use the new chainCfgCpy
+		flexChainConfig = &chainCfgCpy
+	}
+
 	evm := &EVM{
 		Context:     blockCtx,
 		StateDB:     statedb,
 		Config:      config,
-		chainConfig: chainConfig,
-		chainRules:  chainConfig.Rules(blockCtx.BlockNumber, blockCtx.Random != nil, blockCtx.Time),
+		chainConfig: flexChainConfig,
+		chainRules:  flexChainConfig.Rules(blockCtx.BlockNumber, blockCtx.Random != nil, blockCtx.Time),
 		jumpDests:   newMapJumpDests(),
 		hasher:      crypto.NewKeccakState(),
 	}

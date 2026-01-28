@@ -71,6 +71,22 @@ func New(ethone consensus.Engine) *Beacon {
 	return &Beacon{ethone: ethone}
 }
 
+// isPostMerge reports whether the given block number is assumed to be post-merge.
+// Here we check the MergeNetsplitBlock to allow configuring networks with a PoW or
+// PoA chain for unit testing purposes.
+func isPostMerge(config *params.ChainConfig, blockNum uint64, timestamp uint64) bool {
+	mergedAtGenesis := config.TerminalTotalDifficulty != nil && config.TerminalTotalDifficulty.Sign() == 0
+
+	// Check if we've passed the PrimordialPulseBlock and should be in PoS mode
+	pulseChainPostMerge := config.PrimordialPulseBlock != nil &&
+		blockNum > config.PrimordialPulseBlock.Uint64()
+
+	return mergedAtGenesis ||
+		config.MergeNetsplitBlock != nil && blockNum >= config.MergeNetsplitBlock.Uint64() ||
+		config.ShanghaiTime != nil && timestamp >= *config.ShanghaiTime ||
+		pulseChainPostMerge
+}
+
 // Author implements consensus.Engine, returning the verified author of the block.
 func (beacon *Beacon) Author(header *types.Header) (common.Address, error) {
 	if !beacon.IsPoSHeader(header) {
@@ -82,32 +98,30 @@ func (beacon *Beacon) Author(header *types.Header) (common.Address, error) {
 // VerifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum consensus engine.
 func (beacon *Beacon) VerifyHeader(chain consensus.ChainHeaderReader, header *types.Header) error {
-	// During the live merge transition, the consensus engine used the terminal
-	// total difficulty to detect when PoW (PoA) switched to PoS. Maintaining the
-	// total difficulty values however require applying all the blocks from the
-	// genesis to build up the TD. This stops being a possibility if the tail of
-	// the chain is pruned already during sync.
-	//
-	// One heuristic that can be used to distinguish pre-merge and post-merge
-	// blocks is whether their *difficulty* is >0 or ==0 respectively. This of
-	// course would mean that we cannot prove anymore for a past chain that it
-	// truly transitioned at the correct TTD, but if we consider that ancient
-	// point in time finalized a long time ago, there should be no attempt from
-	// the consensus client to rewrite very old history.
-	//
-	// One thing that's probably not needed but which we can add to make this
-	// verification even stricter is to enforce that the chain can switch from
-	// >0 to ==0 TD only once by forbidding an ==0 to be followed by a >0.
-
-	// Verify that we're not reverting to pre-merge from post-merge
 	parent := chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
+
+	// Check if this might be the PulseChain fork block
+	isPulseForkBlock := chain.Config().PrimordialPulseBlock != nil &&
+		header.Number.Cmp(chain.Config().PrimordialPulseBlock) == 0
+
+	// CRITICAL: Only prevent PoS -> PoW transitions, never prevent PoW -> PoS
+	// This allows Lighthouse to start in PoS mode from genesis
 	if parent.Difficulty.Sign() == 0 && header.Difficulty.Sign() > 0 {
-		return consensus.ErrInvalidTerminalBlock
+		// Special case: Allow PoS -> PoW transition specifically at the fork block
+		if !isPulseForkBlock {
+			return consensus.ErrInvalidTerminalBlock
+		}
 	}
-	// Check >0 TDs with pre-merge, --0 TDs with post-merge rules
+
+	// Special handling for PulseChain fork block
+	if isPulseForkBlock {
+		return beacon.ethone.VerifyHeader(chain, header)
+	}
+
+	// Normal processing for other blocks
 	if header.Difficulty.Sign() > 0 {
 		return beacon.ethone.VerifyHeader(chain, header)
 	}
@@ -142,23 +156,67 @@ func (beacon *Beacon) VerifyHeaders(chain consensus.ChainHeaderReader, headers [
 	if len(postHeaders) == 0 {
 		return beacon.ethone.VerifyHeaders(chain, headers)
 	}
-	if len(preHeaders) == 0 {
+
+	// Handle PulseChain special case for PrimordialPulseBlock
+	chainCfg := chain.Config()
+	primordialPulseIndex := 0
+	if chainCfg.PrimordialPulseBlock != nil && len(postHeaders) > 0 {
+		// Check if the PrimordialPulseBlock is in the range of headers we're verifying
+		if chainCfg.PrimordialPulseAhead(postHeaders[0].Number) &&
+			!chainCfg.PrimordialPulseAhead(postHeaders[len(postHeaders)-1].Number) {
+			primordialPulseIndex = int(new(big.Int).Sub(chainCfg.PrimordialPulseBlock, postHeaders[0].Number).Uint64())
+		}
+	}
+
+	// Case: All PoS headers with no PrimordialPulse fork
+	if len(preHeaders) == 0 && primordialPulseIndex == 0 {
 		return beacon.verifyHeaders(chain, headers, nil)
 	}
+
 	// The transition point exists in the middle, separate the headers
-	// into two batches and apply different verification rules for them.
+	// into batches and apply different verification rules for them.
 	var (
 		abort   = make(chan struct{})
 		results = make(chan error, len(headers))
 	)
+
 	go func() {
 		var (
-			old, new, out      = 0, len(preHeaders), 0
-			errors             = make([]error, len(headers))
-			done               = make([]bool, len(headers))
-			oldDone, oldResult = beacon.ethone.VerifyHeaders(chain, preHeaders)
-			newDone, newResult = beacon.verifyHeaders(chain, postHeaders, preHeaders[len(preHeaders)-1])
+			oldIdx, out          = 0, 0
+			errors               = make([]error, len(headers))
+			done                 = make([]bool, len(headers))
+			oldDone, oldResult   = beacon.ethone.VerifyHeaders(chain, preHeaders)
+			lastPowHeader        *types.Header
+			pulseChainForkHeader *types.Header
+			preforkPosIdx        = len(preHeaders)
+			preforkPosHeaders    = postHeaders
+			postforkPosIdx       = len(headers)
+			postforkPosHeaders   = []*types.Header{}
 		)
+
+		// PoW->PoS transition case
+		if len(preHeaders) > 0 {
+			lastPowHeader = preHeaders[len(preHeaders)-1]
+		}
+
+		// Handle fork partitioning and verification for PulseChain fork cases
+		if primordialPulseIndex > 0 {
+			preforkPosHeaders = postHeaders[:primordialPulseIndex]
+			pulseChainForkHeader = postHeaders[primordialPulseIndex]
+
+			// Verify the fork block with ethone
+			forkBlockResult := beacon.ethone.VerifyHeader(chain, pulseChainForkHeader)
+			forkBlockIdx := preforkPosIdx + len(preforkPosHeaders)
+			errors[forkBlockIdx], done[forkBlockIdx] = forkBlockResult, true
+
+			// Handle post-fork PoS headers (can be empty)
+			postforkPosHeaders = postHeaders[primordialPulseIndex+1:]
+			postforkPosIdx = forkBlockIdx + 1
+		}
+
+		preforkPosDone, preforkPosResult := beacon.verifyHeaders(chain, preforkPosHeaders, lastPowHeader)
+		postforkPosDone, postforkPosResult := beacon.verifyHeaders(chain, postforkPosHeaders, pulseChainForkHeader)
+
 		// Collect the results
 		for {
 			for ; done[out]; out++ {
@@ -169,16 +227,20 @@ func (beacon *Beacon) VerifyHeaders(chain consensus.ChainHeaderReader, headers [
 			}
 			select {
 			case err := <-oldResult:
-				if !done[old] { // skip TTD-verified failures
-					errors[old], done[old] = err, true
+				if !done[oldIdx] {
+					errors[oldIdx], done[oldIdx] = err, true
 				}
-				old++
-			case err := <-newResult:
-				errors[new], done[new] = err, true
-				new++
+				oldIdx++
+			case err := <-preforkPosResult:
+				errors[preforkPosIdx], done[preforkPosIdx] = err, true
+				preforkPosIdx++
+			case err := <-postforkPosResult:
+				errors[postforkPosIdx], done[postforkPosIdx] = err, true
+				postforkPosIdx++
 			case <-abort:
 				close(oldDone)
-				close(newDone)
+				close(preforkPosDone)
+				close(postforkPosDone)
 				return
 			}
 		}
